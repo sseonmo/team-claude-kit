@@ -12,10 +12,13 @@
 ### 팀원 개인 설치
 
 ```
-/plugin marketplace add <이 레포의 git URL 또는 로컬 경로>
+/plugin marketplace add sseonmo/team-claude-kit
 /plugin install team-wiki-kit@team-kit
 /plugin install team-repo-audit@team-kit
 ```
+
+private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub 접근 권한과
+로컬 git 인증(HTTPS credential helper 또는 SSH 키)이 있어야 한다.
 
 ### 프로젝트 단위 자동 배포 (권장)
 
@@ -26,7 +29,7 @@
 {
   "extraKnownMarketplaces": {
     "team-kit": {
-      "source": { "source": "github", "repo": "<org>/<repo>" },
+      "source": { "source": "github", "repo": "sseonmo/team-claude-kit" },
       "autoUpdate": true
     }
   },
