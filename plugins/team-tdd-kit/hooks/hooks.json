@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tdd-guard.sh\"",
+            "timeout": 10,
+            "statusMessage": "TDD Guard 검사 중..."
+          }
+        ]
+      }
+    ]
+  }
+}

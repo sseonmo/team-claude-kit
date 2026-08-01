@@ -5,7 +5,7 @@
     "email": "mo3509@gmail.com"
   },
   "metadata": {
-    "description": "팀 공용 Claude Code 플러그인 마켓플레이스 — LLM 위키 운영 + 레포 AI-readiness 감사",
+    "description": "팀 공용 Claude Code 플러그인 마켓플레이스 — LLM 위키 운영 + 레포 AI-readiness 감사 + TDD 강제",
     "version": "0.1.0"
   },
   "plugins": [
@@ -26,6 +26,15 @@
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",
       "keywords": ["audit", "ai-ready", "codebase", "context-engineering", "dashboard"]
+    },
+    {
+      "name": "team-tdd-kit",
+      "source": "./plugins/team-tdd-kit",
+      "description": "테스트 없는 구현 코드 작성을 차단하는 TDD Guard hook. PreToolUse[Edit|Write]에서 대상 모듈의 테스트 파일 존재 여부를 확인하고 없으면 거부한다. TS/JS 대상, Next.js 레이아웃 예외 내장.",
+      "version": "0.1.0",
+      "author": { "name": "sseon", "email": "mo3509@gmail.com" },
+      "category": "workflow",
+      "keywords": ["tdd", "test", "hook", "guard", "harness", "deterministic-gate"]
     }
   ]
 }
