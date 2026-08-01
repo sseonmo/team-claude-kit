@@ -1,0 +1,31 @@
+{
+  "name": "team-kit",
+  "owner": {
+    "name": "sseon",
+    "email": "mo3509@gmail.com"
+  },
+  "metadata": {
+    "description": "팀 공용 Claude Code 플러그인 마켓플레이스 — LLM 위키 운영 + 레포 AI-readiness 감사",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "team-wiki-kit",
+      "source": "./plugins/team-wiki-kit",
+      "description": "Karpathy LLM Wiki 패턴 운영 키트. raw/ 소스를 wiki/로 ingest, 위키 건강검진(lint), 인용 기반 질의(query). WIKI_SCHEMA 템플릿과 /wiki-init 부트스트랩 포함.",
+      "version": "0.1.0",
+      "author": { "name": "sseon", "email": "mo3509@gmail.com" },
+      "category": "workflow",
+      "keywords": ["wiki", "knowledge-base", "ingest", "lint", "karpathy", "second-brain"]
+    },
+    {
+      "name": "team-repo-audit",
+      "source": "./plugins/team-repo-audit",
+      "description": "레포지토리를 AI-Ready v2 루브릭(100점·7카테고리)으로 감사하고 HTML 대시보드 + ROI 순 액션 리스트를 산출한다. hallucinated path 검증 포함.",
+      "version": "0.1.0",
+      "author": { "name": "sseon", "email": "mo3509@gmail.com" },
+      "category": "workflow",
+      "keywords": ["audit", "ai-ready", "codebase", "context-engineering", "dashboard"]
+    }
+  ]
+}

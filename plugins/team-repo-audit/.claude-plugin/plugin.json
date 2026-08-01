@@ -1,0 +1,11 @@
+{
+  "name": "team-repo-audit",
+  "version": "0.1.0",
+  "description": "임의 레포지토리를 AI-Ready v2 루브릭(100점 · 7 카테고리 A-G)으로 감사한다. 산출물은 JSON 점수표 + 단일 파일 HTML 대시보드 + ROI 순 액션 리스트. hallucinated path 검증, context drift, god file 검출을 stdlib-only Python 스크립트로 자동 채점.",
+  "author": {
+    "name": "sseon",
+    "email": "mo3509@gmail.com"
+  },
+  "keywords": ["audit", "ai-ready", "codebase", "context-engineering", "dashboard", "roi"],
+  "license": "MIT"
+}
