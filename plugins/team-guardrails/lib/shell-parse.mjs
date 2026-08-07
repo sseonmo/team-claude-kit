@@ -9,13 +9,28 @@
 //   인터프리터 경유 `python -c ...` · base64 인코딩
 // 전부 통과한다. 정적 판정의 원리적 한계이며, 테스트에 기대값으로 명시돼 있다.
 
-/** 인용부호 안이 아닌 곳의 `;` `&&` `||` `|` `&` 개행으로 명령을 나눈다. */
-export function splitSegments(command) {
+/**
+ * 명령을 세그먼트로 나누되 **위치 정보를 함께** 돌려준다.
+ *   depth    — 괄호 중첩 깊이
+ *   sepAfter — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
+ *
+ * 텍스트만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 서브셸 안이었다는 사실이
+ * 사라진다. 실제 셸에서 서브셸·파이프·백그라운드의 cd 는 밖으로 나오지 않으므로,
+ * 그걸 모르면 밖의 rm 까지 엉뚱한 기준으로 판정해 정상 명령을 막는다.
+ */
+export function splitCommand(command) {
   if (typeof command !== 'string') return []
 
   const segments = []
   let cur = ''
   let quote = null
+  let depth = 0
+
+  const push = (sepAfter) => {
+    const text = cur.trim()
+    if (text) segments.push({ text, depth, sepAfter })
+    cur = ''
+  }
 
   for (let i = 0; i < command.length; i++) {
     const ch = command[i]
@@ -37,9 +52,18 @@ export function splitSegments(command) {
       continue
     }
 
-    if (ch === ';' || ch === '\n' || ch === '(' || ch === ')') {
-      segments.push(cur)
-      cur = ''
+    if (ch === ';' || ch === '\n') {
+      push(';')
+      continue
+    }
+    if (ch === '(') {
+      push('(')
+      depth++
+      continue
+    }
+    if (ch === ')') {
+      push(')')
+      depth = Math.max(0, depth - 1)
       continue
     }
     // `&` 는 명령 경계지만 `2>&1`·`&>` 의 `&` 는 리다이렉션의 일부다.
@@ -49,23 +73,34 @@ export function splitSegments(command) {
         cur += ch
         continue
       }
-      if (command[i + 1] === '&') i++
-      segments.push(cur)
-      cur = ''
+      if (command[i + 1] === '&') {
+        i++
+        push('&&')
+      } else {
+        push('&')
+      }
       continue
     }
     if (ch === '|') {
-      if (command[i + 1] === '|') i++
-      segments.push(cur)
-      cur = ''
+      if (command[i + 1] === '|') {
+        i++
+        push('||')
+      } else {
+        push('|')
+      }
       continue
     }
 
     cur += ch
   }
-  segments.push(cur)
+  push(null)
 
-  return segments.map((s) => s.trim()).filter(Boolean)
+  return segments
+}
+
+/** 세그먼트 텍스트만 필요할 때. */
+export function splitSegments(command) {
+  return splitCommand(command).map((s) => s.text)
 }
 
 /** 세그먼트를 토큰으로 나누고 인용부호·이스케이프를 벗긴다. */

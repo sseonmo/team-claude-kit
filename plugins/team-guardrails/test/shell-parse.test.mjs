@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { splitSegments, tokenize, classifyArgv, stripRedirections } from '../lib/shell-parse.mjs'
+import {
+  splitCommand,
+  splitSegments,
+  tokenize,
+  classifyArgv,
+  stripRedirections,
+} from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
 // splitSegments — 한 줄에 여러 명령이 들어오면 각각 판정해야 한다.
@@ -170,6 +176,44 @@ test('stripRedirections: 대상이 붙어 있는 형태도 걷어낸다', () => 
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '>/dev/null']), ['rm', '-rf', 'x'])
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '2>&1']), ['rm', '-rf', 'x'])
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '&>', 'log']), ['rm', '-rf', 'x'])
+})
+
+// ─────────────────────────────────────────────────────────────
+// splitCommand — 세그먼트의 "위치"를 알려준다.
+// 문자열만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 괄호 안이었다는 사실이
+// 사라져, 밖의 rm 까지 /tmp 기준으로 판정된다.
+// ─────────────────────────────────────────────────────────────
+
+test('splitCommand: 구분자 종류를 함께 돌려준다', () => {
+  assert.deepEqual(splitCommand('a && b; c | d'), [
+    { text: 'a', depth: 0, sepAfter: '&&' },
+    { text: 'b', depth: 0, sepAfter: ';' },
+    { text: 'c', depth: 0, sepAfter: '|' },
+    { text: 'd', depth: 0, sepAfter: null },
+  ])
+})
+
+test('splitCommand: 괄호 깊이를 센다', () => {
+  assert.deepEqual(
+    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.depth]),
+    [
+      ['cd /tmp', 1],
+      ['ls', 1],
+      ['rm -rf x', 0],
+    ]
+  )
+})
+
+test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {
+  assert.deepEqual(
+    splitCommand('a & b && c').map((s) => s.sepAfter),
+    ['&', '&&', null]
+  )
+})
+
+test('splitSegments 는 splitCommand 의 텍스트만 뽑은 것이다', () => {
+  const c = '(cd /tmp && ls); rm -rf x'
+  assert.deepEqual(splitSegments(c), splitCommand(c).map((s) => s.text))
 })
 
 test('stripRedirections: 평범한 인자는 건드리지 않는다', () => {

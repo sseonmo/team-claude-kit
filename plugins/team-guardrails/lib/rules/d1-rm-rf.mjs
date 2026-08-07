@@ -5,7 +5,7 @@
 // 그래서 이 룰의 판정은 "명령이 무엇인가"가 아니라 "대상이 어디인가"다.
 
 import path from 'node:path'
-import { splitSegments, tokenize, classifyArgv, stripRedirections } from '../shell-parse.mjs'
+import { splitCommand, tokenize, classifyArgv, stripRedirections } from '../shell-parse.mjs'
 
 export const id = 'D1'
 
@@ -36,10 +36,15 @@ function nextBase(base, target, ctx) {
 /** 판정 불능이면 null 을 돌려준다. */
 function resolveTarget(raw, base, ctx) {
   const p = expandHome(raw, ctx)
+  // 셸 변수는 펴지 않는다. 리터럴로 취급하면 존재하지도 않는 경로를 사유에 찍으며 막게 된다.
+  if (p.includes('$')) return null
   if (path.isAbsolute(p)) return path.resolve(p)
   if (base === null) return null
   return path.resolve(base, p)
 }
+
+// 실제 셸에서 파이프·백그라운드로 이어지는 명령은 서브셸에서 돌아 cd 가 밖으로 나오지 않는다.
+const CD_ESCAPES = new Set([';', '&&', '||', '(', ')', null])
 
 /** 위험하면 사유 문자열을, 안전하면 null 을 돌려준다. */
 function dangerOf(resolved, ctx) {
@@ -60,16 +65,21 @@ export function check(toolName, toolInput, ctx) {
     if (typeof command !== 'string' || command === '') return null
 
     let base = ctx.cwd
+    const outerBases = [] // 서브셸에 들어갈 때 바깥 기준을 쌓아둔다
 
-    for (const segment of splitSegments(command)) {
-      let tokens = stripRedirections(tokenize(segment))
-      if (tokens[0] === 'sudo') tokens = tokens.slice(1)
+    for (const seg of splitCommand(command)) {
+      // 괄호 깊이에 맞춰 기준 디렉토리를 넣고 뺀다 — 서브셸을 나오면 원래 자리로 돌아온다
+      while (outerBases.length < seg.depth) outerBases.push(base)
+      while (outerBases.length > seg.depth) base = outerBases.pop()
+
+      let tokens = stripRedirections(tokenize(seg.text))
+      if (tokens[0] === 'sudo' || tokens[0] === '{') tokens = tokens.slice(1)
 
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
-        base = nextBase(base, argv[1], ctx)
+        if (CD_ESCAPES.has(seg.sepAfter)) base = nextBase(base, argv[1], ctx)
         continue
       }
       if (name !== 'rm') continue
