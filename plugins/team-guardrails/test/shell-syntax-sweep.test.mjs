@@ -107,6 +107,7 @@ sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
   // 아래 둘은 실제 대상이 프로젝트 안이다 — 막으면 오탐이다
   ['pushd packages/app && rm -rf ../shared', 'pass'],
   ['builtin cd packages/app && rm -rf ../shared', 'pass'],
+  ['eval cd packages/app && rm -rf ../shared', 'pass'],
   ['cd - && rm -rf ../x', 'leak'],
   ['cd $UNKNOWN && (rm -rf ../x)', 'leak'],
   ['(cd /tmp && rm -rf junk)', 'leak'],
@@ -119,21 +120,27 @@ sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
 ])
 
 sweep('조건문 · 반복문 · 함수 정의', [
+  // 이동이 실제로 일어나므로 대상은 프로젝트 밖이다 — 놓치는 쪽
+  ['for d in a; do cd /tmp; done; rm -rf dist', 'leak'], // /tmp/dist
+  ['while cd /tmp; do ls; done; rm -rf dist', 'leak'], // /tmp/dist
+  // 이동이 일어나지 않으므로 대상은 프로젝트 안이다 — 막으면 오탐
   ['if false; then cd /tmp; fi; rm -rf dist', 'pass'],
-  ['for d in a; do cd /tmp; done; rm -rf dist', 'pass'],
-  ['while cd /tmp; do ls; done; rm -rf dist', 'pass'],
-  ['cleanup() { cd /tmp; }\nrm -rf node_modules', 'pass'],
+  ['cleanup() { cd /tmp; }\nrm -rf node_modules', 'pass'], // 정의만 됐다
   ['deploy() {\n  cd /opt\n}\nrm -rf dist', 'pass'],
   ['function deploy {\n  cd ../sibling\n}\nrm -rf node_modules', 'pass'],
+  // 이동이 일어나도 대상은 프로젝트 안이다 (proj/packages/shared) — 막으면 오탐
   ['if [ -d packages/app ]; then\n  cd packages/app\n  rm -rf ../shared/node_modules\nfi', 'pass'],
   // 삭제 자체는 문맥과 무관하게 본다
   ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
 ])
 
 sweep('여러 줄 스크립트', [
+  // 조건이 참이면 /tmp/node_modules, 거짓이면 proj/node_modules — 확정할 수 없다.
+  // 막으면 후자에서 오탐이 되므로 통과가 안전한 쪽이다. v0.1.5 가 이걸 막았다.
   ['if [ -d /tmp/c ]; then\n  cd /tmp\nfi\nrm -rf node_modules', 'pass'],
-  ['for d in a b; do\n  cd /tmp\ndone\nrm -rf dist', 'pass'],
-  ['while true; do\n  cd /tmp\ndone\nrm -rf .next', 'pass'],
+  // 반복문 본문은 실제로 실행된다 — 대상은 프로젝트 밖이고, 놓치는 쪽
+  ['for d in a b; do\n  cd /tmp\ndone\nrm -rf dist', 'leak'],
+  ['while true; do\n  cd /tmp\ndone\nrm -rf .next', 'leak'],
   ['if [ -d x ]; then\n  rm -rf /\nfi', 'deny'],
   ['for d in a; do\n  rm -rf ~\ndone', 'deny'],
   ['if [ -d x ]; then\n  cd sub\n  rm -rf ~\nfi', 'deny'],
