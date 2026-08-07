@@ -37,14 +37,25 @@ export function splitSegments(command) {
       continue
     }
 
-    if (ch === ';' || ch === '\n') {
+    if (ch === ';' || ch === '\n' || ch === '(' || ch === ')') {
       segments.push(cur)
       cur = ''
       continue
     }
-    // `&&` 와 `&`(백그라운드), `||` 와 `|`(파이프) — 어느 쪽이든 명령 경계다
-    if (ch === '&' || ch === '|') {
-      if (command[i + 1] === ch) i++
+    // `&` 는 명령 경계지만 `2>&1`·`&>` 의 `&` 는 리다이렉션의 일부다.
+    // 여기서 잘라내면 세그먼트가 깨져 뒤쪽 토큰이 엉뚱한 명령으로 보인다.
+    if (ch === '&') {
+      if (cur.trimEnd().endsWith('>') || command[i + 1] === '>') {
+        cur += ch
+        continue
+      }
+      if (command[i + 1] === '&') i++
+      segments.push(cur)
+      cur = ''
+      continue
+    }
+    if (ch === '|') {
+      if (command[i + 1] === '|') i++
       segments.push(cur)
       cur = ''
       continue
@@ -108,6 +119,28 @@ export function tokenize(segment) {
   if (started) tokens.push(cur)
 
   return tokens
+}
+
+// `2>` `>>` `<` `&>` `>/dev/null` `2>&1` 을 모두 잡는다.
+// 캡처 3번이 비어 있으면 대상이 다음 토큰에 있다는 뜻이다.
+const REDIRECT = /^(\d*|&)(>>|>|<)(.*)$/
+
+/**
+ * 리다이렉션 연산자와 그 대상을 걷어낸다.
+ * 이걸 안 하면 `rm -rf dist > /dev/null` 의 `/dev/null` 이 삭제 대상으로 오인돼
+ * 정상 명령이 막힌다 — 오탐은 이 플러그인이 가장 경계하는 실패다.
+ */
+export function stripRedirections(tokens) {
+  const out = []
+  for (let i = 0; i < tokens.length; i++) {
+    const m = REDIRECT.exec(tokens[i])
+    if (!m) {
+      out.push(tokens[i])
+      continue
+    }
+    if (m[3] === '') i++ // 대상이 다음 토큰이다 — 함께 버린다
+  }
+  return out
 }
 
 /**

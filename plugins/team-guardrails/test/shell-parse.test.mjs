@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { splitSegments, tokenize, classifyArgv } from '../lib/shell-parse.mjs'
+import { splitSegments, tokenize, classifyArgv, stripRedirections } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
 // splitSegments — 한 줄에 여러 명령이 들어오면 각각 판정해야 한다.
@@ -134,4 +134,45 @@ test('classifyArgv: 빈 입력', () => {
   assert.deepEqual(r.argv, [])
   assert.equal(r.short.size, 0)
   assert.equal(r.long.size, 0)
+})
+
+// ─────────────────────────────────────────────────────────────
+// 리다이렉션 — `2>&1` 의 `&` 를 명령 경계로 잘라내면 세그먼트가 깨지고,
+// `> /dev/null` 의 대상이 operand 로 남으면 삭제 대상으로 오인된다.
+// `rm -rf dist > /dev/null 2>&1` 은 에이전트가 하루에도 여러 번 쓰는 형태다.
+// ─────────────────────────────────────────────────────────────
+
+test('splitSegments: 2>&1 의 & 는 명령 경계가 아니다', () => {
+  assert.deepEqual(splitSegments('rm -rf dist > /dev/null 2>&1'), ['rm -rf dist > /dev/null 2>&1'])
+})
+
+test('splitSegments: &> 도 명령 경계가 아니다', () => {
+  assert.deepEqual(splitSegments('npm run build &> log.txt'), ['npm run build &> log.txt'])
+})
+
+test('splitSegments: 진짜 백그라운드 & 는 여전히 경계다', () => {
+  assert.deepEqual(splitSegments('npm run dev & npm test'), ['npm run dev', 'npm test'])
+})
+
+test('splitSegments: 서브셸 괄호는 명령 경계다', () => {
+  assert.deepEqual(splitSegments('(rm -rf /)'), ['rm -rf /'])
+  assert.deepEqual(splitSegments('(cd /tmp && ls)'), ['cd /tmp', 'ls'])
+})
+
+test('stripRedirections: 연산자와 대상을 함께 걷어낸다', () => {
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'dist', '>', '/dev/null']), ['rm', '-rf', 'dist'])
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '2>', '/dev/null']), ['rm', '-rf', 'x'])
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '>>', 'log.txt']), ['rm', '-rf', 'x'])
+  assert.deepEqual(stripRedirections(['sort', '<', 'in.txt']), ['sort'])
+})
+
+test('stripRedirections: 대상이 붙어 있는 형태도 걷어낸다', () => {
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '>/dev/null']), ['rm', '-rf', 'x'])
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '2>&1']), ['rm', '-rf', 'x'])
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '&>', 'log']), ['rm', '-rf', 'x'])
+})
+
+test('stripRedirections: 평범한 인자는 건드리지 않는다', () => {
+  assert.deepEqual(stripRedirections(['rm', '-rf', 'dist', '2', 'build']), ['rm', '-rf', 'dist', '2', 'build'])
+  assert.deepEqual(stripRedirections([]), [])
 })

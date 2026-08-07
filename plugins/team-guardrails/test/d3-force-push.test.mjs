@@ -49,6 +49,18 @@ test('D3: 한 줄에 여러 명령이 있어도 각각 본다', () => {
   denied('npm test && git push --force')
 })
 
+test('D3: sudo 를 앞에 붙여도 잡는다 (D1 과 같은 처리)', () => {
+  denied('sudo git push --force')
+})
+
+test('D3: 서브셸 안도 본다', () => {
+  denied('(git push -f)')
+})
+
+test('D3: 리다이렉션 대상을 refspec 으로 오인하지 않는다', () => {
+  passed('git push origin main > /dev/null 2>&1')
+})
+
 test('D3: 차단 사유에 무엇에 걸렸는지 들어간다', () => {
   assert.match(denied('git push -f').reason, /\[guardrail D3\]/)
   assert.match(denied('git push origin +main').reason, /\+main/)

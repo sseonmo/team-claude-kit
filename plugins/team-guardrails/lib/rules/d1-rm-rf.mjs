@@ -5,19 +5,40 @@
 // 그래서 이 룰의 판정은 "명령이 무엇인가"가 아니라 "대상이 어디인가"다.
 
 import path from 'node:path'
-import { splitSegments, tokenize, classifyArgv } from '../shell-parse.mjs'
+import { splitSegments, tokenize, classifyArgv, stripRedirections } from '../shell-parse.mjs'
 
 export const id = 'D1'
 
 /** `~` 와 리터럴 `$HOME` 만 편다. 그 외 변수는 펴지 않는다(정적 판정의 한계 — 의도된 동작). */
-function resolveTarget(raw, ctx) {
-  let p = raw
-  if (p === '~') p = ctx.home
-  else if (p.startsWith('~/')) p = path.join(ctx.home, p.slice(2))
-  else if (p === '$HOME' || p === '${HOME}') p = ctx.home
-  else if (p.startsWith('$HOME/')) p = path.join(ctx.home, p.slice(6))
-  else if (p.startsWith('${HOME}/')) p = path.join(ctx.home, p.slice(8))
-  return path.resolve(ctx.cwd, p)
+function expandHome(p, ctx) {
+  if (p === '~') return ctx.home
+  if (p.startsWith('~/')) return path.join(ctx.home, p.slice(2))
+  if (p === '$HOME' || p === '${HOME}') return ctx.home
+  if (p.startsWith('$HOME/')) return path.join(ctx.home, p.slice(6))
+  if (p.startsWith('${HOME}/')) return path.join(ctx.home, p.slice(8))
+  return p
+}
+
+/**
+ * 같은 줄의 앞선 `cd` 를 반영한 기준 디렉토리.
+ * 없으면 `cd /tmp && rm -rf junk` 의 `junk` 가 프로젝트 안으로 풀려 그냥 통과한다.
+ * 어디로 갔는지 알 수 없으면 `null` — 그 뒤의 상대경로는 판정하지 않는다(fail-open).
+ */
+function nextBase(base, target, ctx) {
+  if (target === undefined) return ctx.home // `cd` 단독은 홈으로 간다
+  if (target === '-') return null // 직전 디렉토리 — 알 수 없다
+  const p = expandHome(target, ctx)
+  if (path.isAbsolute(p)) return p
+  if (base === null || p.includes('$')) return null
+  return path.resolve(base, p)
+}
+
+/** 판정 불능이면 null 을 돌려준다. */
+function resolveTarget(raw, base, ctx) {
+  const p = expandHome(raw, ctx)
+  if (path.isAbsolute(p)) return path.resolve(p)
+  if (base === null) return null
+  return path.resolve(base, p)
 }
 
 /** 위험하면 사유 문자열을, 안전하면 null 을 돌려준다. */
@@ -38,12 +59,20 @@ export function check(toolName, toolInput, ctx) {
     const command = toolInput && toolInput.command
     if (typeof command !== 'string' || command === '') return null
 
+    let base = ctx.cwd
+
     for (const segment of splitSegments(command)) {
-      let tokens = tokenize(segment)
+      let tokens = stripRedirections(tokenize(segment))
       if (tokens[0] === 'sudo') tokens = tokens.slice(1)
 
       const { argv, short, long } = classifyArgv(tokens)
-      if (path.basename(argv[0] || '') !== 'rm') continue
+      const name = path.basename(argv[0] || '')
+
+      if (name === 'cd') {
+        base = nextBase(base, argv[1], ctx)
+        continue
+      }
+      if (name !== 'rm') continue
 
       // 표기·순서를 흡수한 뒤의 판정은 이 두 줄이 전부다
       const recursive = short.has('r') || short.has('R') || long.has('recursive')
@@ -51,7 +80,9 @@ export function check(toolName, toolInput, ctx) {
       if (!recursive || !force) continue
 
       for (const raw of argv.slice(1)) {
-        const resolved = resolveTarget(raw, ctx)
+        const resolved = resolveTarget(raw, base, ctx)
+        if (resolved === null) continue // 기준 디렉토리를 모른다 — 막지 않는다
+
         const why = dangerOf(resolved, ctx)
         if (!why) continue
 
