@@ -1,0 +1,72 @@
+// D1 — `rm -rf` 의 대상이 프로젝트 밖이면 막는다.
+//
+// 대상 경로를 보지 않고 `rm -rf` 를 무조건 막으면 `rm -rf node_modules` 까지 막힌다.
+// 그런 훅은 오탐이 일상이 되고, 사용자는 훅을 끈다. 꺼진 훅은 없는 훅과 같다.
+// 그래서 이 룰의 판정은 "명령이 무엇인가"가 아니라 "대상이 어디인가"다.
+
+import path from 'node:path'
+import { splitSegments, tokenize, classifyArgv } from '../shell-parse.mjs'
+
+export const id = 'D1'
+
+/** `~` 와 리터럴 `$HOME` 만 편다. 그 외 변수는 펴지 않는다(정적 판정의 한계 — 의도된 동작). */
+function resolveTarget(raw, ctx) {
+  let p = raw
+  if (p === '~') p = ctx.home
+  else if (p.startsWith('~/')) p = path.join(ctx.home, p.slice(2))
+  else if (p === '$HOME' || p === '${HOME}') p = ctx.home
+  else if (p.startsWith('$HOME/')) p = path.join(ctx.home, p.slice(6))
+  else if (p.startsWith('${HOME}/')) p = path.join(ctx.home, p.slice(8))
+  return path.resolve(ctx.cwd, p)
+}
+
+/** 위험하면 사유 문자열을, 안전하면 null 을 돌려준다. */
+function dangerOf(resolved, ctx) {
+  if (resolved === '/') return '루트 디렉토리'
+  if (resolved === ctx.home) return '홈 디렉토리'
+  if (resolved === ctx.cwd) return '프로젝트 루트 자체(.git 포함)'
+  const rel = path.relative(ctx.cwd, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return '프로젝트 밖'
+  return null
+}
+
+export function check(toolName, toolInput, ctx) {
+  try {
+    if (toolName !== 'Bash') return null
+    if (!ctx || !ctx.cwd || !ctx.home) return null // 판정 근거가 없으면 막지 않는다
+
+    const command = toolInput && toolInput.command
+    if (typeof command !== 'string' || command === '') return null
+
+    for (const segment of splitSegments(command)) {
+      let tokens = tokenize(segment)
+      if (tokens[0] === 'sudo') tokens = tokens.slice(1)
+
+      const { argv, short, long } = classifyArgv(tokens)
+      if (path.basename(argv[0] || '') !== 'rm') continue
+
+      // 표기·순서를 흡수한 뒤의 판정은 이 두 줄이 전부다
+      const recursive = short.has('r') || short.has('R') || long.has('recursive')
+      const force = short.has('f') || long.has('force')
+      if (!recursive || !force) continue
+
+      for (const raw of argv.slice(1)) {
+        const resolved = resolveTarget(raw, ctx)
+        const why = dangerOf(resolved, ctx)
+        if (!why) continue
+
+        return {
+          decision: 'deny',
+          rule: 'D1',
+          reason:
+            `[guardrail D1] rm -rf 대상이 ${why}입니다: ${resolved}\n` +
+            `  · 프로젝트 안(${ctx.cwd})의 경로는 막지 않습니다 — node_modules·dist 삭제는 그대로 됩니다.\n` +
+            `  · 정말 이 경로를 지워야 한다면 터미널에서 직접 실행하십시오.`,
+        }
+      }
+    }
+    return null
+  } catch {
+    return null // fail-open — 모르면 아무것도 하지 않는다
+  }
+}
