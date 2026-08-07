@@ -81,16 +81,20 @@ sweep('인용부호', [
   ['git commit -m "git push --force 관련"', 'pass'],
 ])
 
-// `cd` 가 낀 항목은 "프로젝트 안이라 통과"가 아니라 **"판정을 접어서 통과"** 다.
-// 둘을 같은 라벨로 두면 표가 무엇을 지키는지 흐려지므로 leak 으로 구분한다.
+// 라벨은 **실제 셸에서 그 대상이 어디인가**로 정한다. 판정을 접어서 통과한 것과
+// 애초에 안전해서 통과한 것은 다른 사건이다.
+//   leak — 실제 대상은 프로젝트 밖이다. 위험한데 놓친다.
+//   pass — 실제 대상은 프로젝트 안이다. **막으면 오탐이다.**
+// 나중에 cd 해석을 되살리려는 사람은 pass 줄을 먼저 봐야 한다 — v0.1.1·v0.1.2 가
+// 정확히 그 줄들을 막았다가 회귀를 냈다.
 sweep('서브셸', [
   ['(rm -rf /)', 'deny'],
   ['(a && (rm -rf /))', 'deny'],
-  ['(cd /tmp && rm -rf junk)', 'leak'],
-  ['cd /tmp; (rm -rf dist)', 'leak'],
-  ['(cd /tmp) && rm -rf dist', 'leak'],
-  ['(cd ../x && npm i) && (rm -rf dist)', 'leak'],
-  ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'leak'],
+  ['(cd /tmp && rm -rf junk)', 'leak'], // 실제로 /tmp/junk
+  ['cd /tmp; (rm -rf dist)', 'leak'], // 실제로 /tmp/dist
+  ['(cd /tmp) && rm -rf dist', 'pass'], // 서브셸의 cd 는 밖에 안 남는다 → proj/dist
+  ['(cd ../x && npm i) && (rm -rf dist)', 'pass'], // v0.1.2 가 막았던 오탐
+  ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'pass'], // v0.1.1 가 막았던 오탐
 ])
 
 // `cd` 는 따라가지 않는다 (v0.2.0). 상대경로는 언제나 프로젝트 루트 기준이다.
@@ -99,8 +103,10 @@ sweep('서브셸', [
 sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
   ['cd /tmp && rm -rf junk', 'leak'],
   ['cd /tmp && rm -rf ..', 'leak'],
-  ['pushd packages/app && rm -rf ../shared', 'pass'],
   ['popd && rm -rf ../other', 'leak'],
+  // 아래 둘은 실제 대상이 프로젝트 안이다 — 막으면 오탐이다
+  ['pushd packages/app && rm -rf ../shared', 'pass'],
+  ['builtin cd packages/app && rm -rf ../shared', 'pass'],
   ['cd - && rm -rf ../x', 'leak'],
   ['cd $UNKNOWN && (rm -rf ../x)', 'leak'],
   ['(cd /tmp && rm -rf junk)', 'leak'],

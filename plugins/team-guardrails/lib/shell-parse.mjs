@@ -150,7 +150,7 @@ export function stripRedirections(tokens) {
 // 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
 // D1 은 sudo 를 벗기는데 D3 는 안 벗기는 식이다. 한 곳에 모아 그 자리를 없앤다.
 const COMMAND_PREFIXES = new Set([
-  'sudo', 'env', 'command', 'nohup', 'time', 'exec', '!', '{', // 실행 래퍼
+  'sudo', 'env', 'command', 'builtin', 'nohup', 'time', 'exec', '!', '{', // 실행 래퍼
   'if', 'elif', 'then', 'else', 'while', 'until', 'for', 'do', 'in', 'case', 'select', // 키워드
 ])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
