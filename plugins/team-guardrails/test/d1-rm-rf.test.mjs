@@ -176,12 +176,24 @@ test('D1: 스크립트·인터프리터 경유는 통과한다 (의도된 동작
 // 아래는 전부 **통과가 정상**이다. 되살리려 한다면 이 목록 전체를 감당해야 한다.
 // ─────────────────────────────────────────────────────────────
 
-test('D1: cd 뒤의 상대경로는 프로젝트 기준으로 푼다 (알려진 미탐)', () => {
+test('D1: cd 뒤의 상대경로는 판정하지 않는다 (알려진 미탐)', () => {
   passed('cd /tmp && rm -rf junk')
   passed('cd .. && rm -rf other-project')
   passed('cd ~ && rm -rf Documents')
   passed('cd - && rm -rf junk')
   passed('cd $SOMEWHERE && rm -rf junk')
+  // `.` 과 `..` 도 상대경로다 — cd 뒤에서는 어디를 가리키는지 모른다
+  passed('cd /tmp && rm -rf ..')
+  passed('cd sub && rm -rf ../..')
+})
+
+// 디렉토리를 옮기는 건 cd 뿐이 아니다. 하나만 세면 나머지에서 오탐이 난다 —
+// `pushd packages/app && rm -rf ../shared` 의 대상은 프로젝트 안인데
+// 프로젝트 루트 기준으로 풀면 밖으로 나간다.
+test('D1: pushd·popd 도 디렉토리를 옮긴 것으로 센다', () => {
+  passed('pushd packages/app && rm -rf ../shared')
+  passed('pushd /tmp; rm -rf ../etc')
+  passed('popd && rm -rf ../other')
 })
 
 test('D1: 서브셸·파이프·백그라운드의 cd 도 마찬가지다', () => {
@@ -205,9 +217,10 @@ test('D1: 조건문·반복문·함수 정의 안의 cd 도 마찬가지다', ()
   passed('time cd /tmp && rm -rf junk')
 })
 
-test('D1: cd 가 있어도 절대경로 대상은 그대로 판정한다', () => {
+test('D1: 디렉토리를 옮겨도 절대경로 대상은 그대로 판정한다', () => {
   denied('cd /tmp && rm -rf /etc')
   denied('cd - && rm -rf /etc')
+  denied('pushd /tmp && rm -rf ~')
   denied('if [ -d x ]; then\n  cd sub\n  rm -rf ~\nfi')
 })
 

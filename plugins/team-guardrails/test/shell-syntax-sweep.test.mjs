@@ -81,14 +81,16 @@ sweep('인용부호', [
   ['git commit -m "git push --force 관련"', 'pass'],
 ])
 
+// `cd` 가 낀 항목은 "프로젝트 안이라 통과"가 아니라 **"판정을 접어서 통과"** 다.
+// 둘을 같은 라벨로 두면 표가 무엇을 지키는지 흐려지므로 leak 으로 구분한다.
 sweep('서브셸', [
   ['(rm -rf /)', 'deny'],
   ['(a && (rm -rf /))', 'deny'],
   ['(cd /tmp && rm -rf junk)', 'leak'],
-  ['cd /tmp; (rm -rf dist)', 'pass'],
-  ['(cd /tmp) && rm -rf dist', 'pass'],
-  ['(cd ../x && npm i) && (rm -rf dist)', 'pass'],
-  ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'pass'],
+  ['cd /tmp; (rm -rf dist)', 'leak'],
+  ['(cd /tmp) && rm -rf dist', 'leak'],
+  ['(cd ../x && npm i) && (rm -rf dist)', 'leak'],
+  ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'leak'],
 ])
 
 // `cd` 는 따라가지 않는다 (v0.2.0). 상대경로는 언제나 프로젝트 루트 기준이다.
@@ -96,6 +98,9 @@ sweep('서브셸', [
 // 여러 축에 흩어져 있었다. 아래는 그때 문제가 됐던 형태 전부이며 지금은 **전부 통과**다.
 sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
   ['cd /tmp && rm -rf junk', 'leak'],
+  ['cd /tmp && rm -rf ..', 'leak'],
+  ['pushd packages/app && rm -rf ../shared', 'pass'],
+  ['popd && rm -rf ../other', 'leak'],
   ['cd - && rm -rf ../x', 'leak'],
   ['cd $UNKNOWN && (rm -rf ../x)', 'leak'],
   ['(cd /tmp && rm -rf junk)', 'leak'],

@@ -40,13 +40,18 @@ function expandHome(p, ctx) {
   return p
 }
 
+// 디렉토리를 옮기는 명령. `cd` 만 세면 나머지에서 오탐이 난다 —
+// `pushd packages/app && rm -rf ../shared` 의 대상은 프로젝트 안인데
+// 프로젝트 루트 기준으로 풀면 밖으로 나간다.
+const DIR_CHANGERS = new Set(['cd', 'pushd', 'popd'])
+
 /** 판정 불능이면 null 을 돌려준다. */
-function resolveTarget(raw, ctx, cdSeen) {
+function resolveTarget(raw, ctx, moved) {
   const p = expandHome(raw, ctx)
   // 셸 변수는 펴지 않는다. 리터럴로 취급하면 존재하지도 않는 경로를 사유에 찍으며 막게 된다.
   if (p.includes('$')) return null
-  // 앞에 cd 가 있었다면 이 상대경로가 어디를 가리키는지 모른다
-  if (cdSeen && !path.isAbsolute(p)) return null
+  // 앞에서 디렉토리를 옮겼다면 이 상대경로가 어디를 가리키는지 모른다
+  if (moved && !path.isAbsolute(p)) return null
   return path.resolve(ctx.cwd, p)
 }
 
@@ -68,15 +73,15 @@ export function check(toolName, toolInput, ctx) {
     const command = toolInput && toolInput.command
     if (typeof command !== 'string' || command === '') return null
 
-    let cdSeen = false // 목적지는 안 본다. 있었다는 사실만 본다.
+    let moved = false // 목적지는 안 본다. 옮겼다는 사실만 본다.
 
     for (const segment of splitSegments(command)) {
       const tokens = stripCommandPrefixes(stripRedirections(tokenize(segment)))
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
-      if (name === 'cd') {
-        cdSeen = true
+      if (DIR_CHANGERS.has(name)) {
+        moved = true
         continue
       }
       if (name !== 'rm') continue
@@ -87,7 +92,7 @@ export function check(toolName, toolInput, ctx) {
       if (!recursive || !force) continue
 
       for (const raw of argv.slice(1)) {
-        const resolved = resolveTarget(raw, ctx, cdSeen)
+        const resolved = resolveTarget(raw, ctx, moved)
         if (resolved === null) continue // 판정 불능 — 막지 않는다
 
         const why = dangerOf(resolved, ctx)
