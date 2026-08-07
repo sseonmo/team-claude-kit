@@ -8,6 +8,7 @@ import {
   stripRedirections,
   stripCommandPrefixes,
   startsWithShellKeyword,
+  blockDelta,
 } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
@@ -240,6 +241,52 @@ test('startsWithShellKeyword: 조건부로 실행되는 자리인지 알려준�
   assert.equal(startsWithShellKeyword(['sudo', 'cd', '/tmp']), false)
   assert.equal(startsWithShellKeyword(['cd', '/tmp']), false)
   assert.equal(startsWithShellKeyword([]), false)
+  // 브레이스 그룹과 부정도 무조건 실행된다 — 조건이 아니다
+  assert.equal(startsWithShellKeyword(['{', 'cd', '/tmp']), false)
+  assert.equal(startsWithShellKeyword(['!', 'cd', '/tmp']), false)
+})
+
+// ─────────────────────────────────────────────────────────────
+// blockDelta — 조건·반복 블록의 열고 닫힘.
+// 세그먼트 하나만 보면 여러 줄로 쓴 조건문의 본문에는 키워드가 없다.
+//   if [ -d x ]; then
+//     cd /tmp        ← 이 줄만 보면 평범한 cd 다
+//   fi
+// 그래서 블록이 열려 있는지를 줄 사이로 이어서 세야 한다.
+// ─────────────────────────────────────────────────────────────
+
+test('blockDelta: 블록을 여는 키워드', () => {
+  assert.equal(blockDelta(['if', '[', '-d', 'x', ']']), 1)
+  assert.equal(blockDelta(['for', 'f', 'in', 'a', 'b']), 1)
+  assert.equal(blockDelta(['while', 'true']), 1)
+  assert.equal(blockDelta(['until', 'false']), 1)
+  assert.equal(blockDelta(['case', '$x']), 1)
+})
+
+test('blockDelta: 블록을 닫는 키워드', () => {
+  assert.equal(blockDelta(['fi']), -1)
+  assert.equal(blockDelta(['done']), -1)
+  assert.equal(blockDelta(['esac']), -1)
+})
+
+test('blockDelta: 블록 안의 이음말은 열지도 닫지도 않는다', () => {
+  assert.equal(blockDelta(['then']), 0)
+  assert.equal(blockDelta(['else']), 0)
+  assert.equal(blockDelta(['do']), 0)
+  assert.equal(blockDelta(['elif', 'true']), 0)
+})
+
+test('blockDelta: 평범한 명령은 0 이다', () => {
+  assert.equal(blockDelta(['cd', '/tmp']), 0)
+  assert.equal(blockDelta(['rm', '-rf', '/']), 0)
+  assert.equal(blockDelta(['{', 'cd', '/tmp']), 0)
+  assert.equal(blockDelta([]), 0)
+})
+
+test('blockDelta: 키워드가 인자로 등장하면 세지 않는다 — 오탐 방지선', () => {
+  assert.equal(blockDelta(['echo', 'if', 'done']), 0)
+  assert.equal(blockDelta(['rm', '-rf', 'fi']), 0)
+  assert.equal(blockDelta(['git', 'commit', '-m', 'done']), 0)
 })
 
 test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {

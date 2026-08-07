@@ -243,6 +243,30 @@ test('D1: 실행 래퍼가 붙은 cd 는 기준을 바꾼다 (언제나 실행�
   denied('sudo cd /tmp; rm -rf junk')
 })
 
+test('D1: 브레이스 그룹·부정도 무조건 실행이므로 기준을 바꾼다', () => {
+  denied('{ cd /tmp; }; rm -rf junk')
+  denied('{ cd /tmp; rm -rf junk; }')
+  denied('! cd /tmp; rm -rf junk')
+})
+
+// 여러 줄로 쓰면 본문 줄에는 키워드가 없다. 세그먼트 하나만 보는 판정은 여기서 무너지고,
+// 하필 이 플러그인이 "절대 막지 않는다"고 약속한 명령이 막힌다.
+test('D1: 여러 줄 조건문·반복문 안의 cd 도 기준을 바꾸지 않는다', () => {
+  passed('if [ -d /tmp/c ]; then\n  cd /tmp\nfi\nrm -rf node_modules')
+  passed('if [ -d x ]; then\n  cd ..\nfi\nrm -rf node_modules')
+  passed('for d in a b; do\n  cd /tmp\ndone\nrm -rf dist')
+  passed('while true; do\n  cd /tmp\ndone\nrm -rf .next')
+})
+
+test('D1: 여러 줄이어도 삭제 자체는 본다', () => {
+  denied('if [ -d x ]; then\n  rm -rf /\nfi')
+  denied('for d in a; do\n  rm -rf ~\ndone')
+})
+
+test('D1: 블록이 닫히면 그다음 cd 는 다시 기준을 바꾼다', () => {
+  denied('if [ -d x ]; then\n  ls\nfi\ncd /tmp\nrm -rf junk')
+})
+
 // ─────────────────────────────────────────────────────────────
 // 판정 불능은 서브셸을 건너도 판정 불능이다.
 // `??` 로 기본값을 주면 "모른다"가 "프로젝트 루트다"로 되살아나 정상 명령을 막는다.

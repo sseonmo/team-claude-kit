@@ -106,8 +106,20 @@ sweep('조건문 · 반복문 안의 cd', [
   ['while cd /tmp; do ls; done; rm -rf dist', 'pass'],
   // 조건부여도 삭제 자체는 본다
   ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
-  // 언제나 실행되는 래퍼는 기준을 바꾼다
+  // 언제나 실행되는 것들은 기준을 바꾼다
   ['time cd /tmp && rm -rf junk', 'deny'],
+  ['{ cd /tmp; }; rm -rf junk', 'deny'],
+  ['! cd /tmp; rm -rf junk', 'deny'],
+])
+
+// 여러 줄로 쓰면 본문 줄에 키워드가 없다. 0.1.5 의 회귀가 이 축에서 나왔다.
+sweep('여러 줄 스크립트', [
+  ['if [ -d /tmp/c ]; then\n  cd /tmp\nfi\nrm -rf node_modules', 'pass'],
+  ['for d in a b; do\n  cd /tmp\ndone\nrm -rf dist', 'pass'],
+  ['while true; do\n  cd /tmp\ndone\nrm -rf .next', 'pass'],
+  ['if [ -d x ]; then\n  rm -rf /\nfi', 'deny'],
+  ['for d in a; do\n  rm -rf ~\ndone', 'deny'],
+  ['if [ -d x ]; then\n  ls\nfi\ncd /tmp\nrm -rf junk', 'deny'],
 ])
 
 sweep('명령 앞에 붙는 것들', [

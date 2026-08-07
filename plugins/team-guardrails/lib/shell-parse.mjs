@@ -199,27 +199,55 @@ export function stripRedirections(tokens) {
 // 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
 // D1 은 sudo 를 벗기는데 D3 는 안 벗기고, D1 은 `{` 를 벗기는데 D3 는 안 벗기는 식이다.
 // 한 곳에 모아 그 자리를 없앤다.
-// 언제나 실행되는 래퍼 — 뒤의 명령이 돈다는 사실이 바뀌지 않는다
-const EXEC_WRAPPERS = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec'])
-// 조건·반복 문맥을 여는 키워드 — 뒤의 명령은 **실행되지 않을 수도** 있다
-const SHELL_KEYWORDS = new Set(['!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do'])
+// 언제나 실행되는 것들 — 뒤의 명령이 돈다는 사실이 바뀌지 않는다.
+// `{`(브레이스 그룹)와 `!`(부정)도 여기다. 문법 장식일 뿐 실행을 막지 않는다.
+const EXEC_WRAPPERS = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', '{', '!'])
+// 조건·반복 블록을 여는 키워드 — 그 안의 명령은 **실행되지 않을 수도** 있다
+const BLOCK_OPENERS = new Set(['if', 'while', 'until', 'for', 'case', 'select'])
+// 블록을 닫는 키워드
+const BLOCK_CLOSERS = new Set(['fi', 'done', 'esac'])
+// 블록 안의 이음말 — 열지도 닫지도 않지만 명령 앞에 붙는다
+const BLOCK_JOINERS = new Set(['then', 'else', 'elif', 'do', 'in'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
-const isPrefix = (t) => EXEC_WRAPPERS.has(t) || SHELL_KEYWORDS.has(t) || ASSIGNMENT.test(t)
+const isPrefix = (t) =>
+  EXEC_WRAPPERS.has(t) || BLOCK_OPENERS.has(t) || BLOCK_JOINERS.has(t) || ASSIGNMENT.test(t)
 
 /**
- * 이 세그먼트가 조건·반복 문맥 안에 있는가.
+ * 이 세그먼트가 **자기 안에서** 조건·반복 문맥을 여는가.
  *
  * `if ...; then cd /tmp; fi` 의 `cd` 는 실행될 수도, 안 될 수도 있다. 실행된 것으로
- * 단정하면 그 뒤의 정상적인 프로젝트 내부 삭제가 전부 막힌다. 반대로 `time cd /tmp` 는
- * 언제나 실행되므로 여기 해당하지 않는다.
+ * 단정하면 그 뒤의 정상적인 프로젝트 내부 삭제가 전부 막힌다.
+ * 반대로 `time cd /tmp`·`{ cd /tmp; }` 는 언제나 실행되므로 여기 해당하지 않는다.
+ *
+ * 여러 줄로 쓴 조건문의 본문에는 키워드가 없다. 그건 `blockDelta` 가 맡는다.
  */
 export function startsWithShellKeyword(tokens) {
   for (const t of tokens) {
-    if (SHELL_KEYWORDS.has(t)) return true
+    if (BLOCK_OPENERS.has(t) || BLOCK_JOINERS.has(t)) return true
     if (!isPrefix(t)) return false
   }
   return false
+}
+
+/**
+ * 이 세그먼트가 조건·반복 블록을 여는지(+1) 닫는지(-1) 알려준다.
+ *
+ * 세그먼트 하나만 보는 판정은 여러 줄 스크립트에서 무너진다 —
+ * `if [ -d x ]; then` / `cd /tmp` / `fi` 로 줄이 갈리면 가운데 줄에는 키워드가 없다.
+ * 블록이 열려 있는지를 줄 사이로 이어서 세야 한다.
+ *
+ * **명령 이름에 도달하면 멈춘다.** 계속 훑으면 `echo if` 나 `rm -rf fi` 처럼
+ * 키워드가 인자로 등장한 경우까지 블록으로 세게 된다.
+ */
+export function blockDelta(tokens) {
+  let delta = 0
+  for (const t of tokens) {
+    if (BLOCK_OPENERS.has(t)) delta++
+    else if (BLOCK_CLOSERS.has(t)) delta--
+    else if (!isPrefix(t)) break
+  }
+  return delta
 }
 
 /**

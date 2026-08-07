@@ -12,6 +12,7 @@ import {
   stripRedirections,
   stripCommandPrefixes,
   startsWithShellKeyword,
+  blockDelta,
 } from '../shell-parse.mjs'
 
 export const id = 'D1'
@@ -99,17 +100,22 @@ export function check(toolName, toolInput, ctx) {
     // 새 스코프는 자기를 감싼 스코프의 현재 기준을 물려받는다.
     const baseByScope = new Map([[0, ctx.cwd]])
 
+    let blockDepth = 0 // 조건·반복 블록 안인가 (여러 줄 스크립트에서 줄 사이로 이어진다)
+
     for (const seg of splitCommand(command)) {
       const base = baseFor(seg, baseByScope, ctx)
 
-      const raw = stripRedirections(tokenize(seg.text))
-      const tokens = stripCommandPrefixes(raw)
+      const segTokens = stripRedirections(tokenize(seg.text))
+      blockDepth = Math.max(0, blockDepth + blockDelta(segTokens))
+
+      const tokens = stripCommandPrefixes(segTokens)
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
         // 조건·반복 안의 cd 는 실행 여부를 알 수 없다 — 실행된 것으로 단정하지 않는다
-        if (CD_ESCAPES.has(seg.sepAfter) && !startsWithShellKeyword(raw)) {
+        const conditional = blockDepth > 0 || startsWithShellKeyword(segTokens)
+        if (CD_ESCAPES.has(seg.sepAfter) && !conditional) {
           baseByScope.set(seg.scopeId, nextBase(base, argv[1], ctx))
         }
         continue
