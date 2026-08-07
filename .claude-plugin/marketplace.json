@@ -40,7 +40,7 @@
       "name": "team-guardrails",
       "source": "./plugins/team-guardrails",
       "description": "에이전트의 되돌릴 수 없는 실수를 막는 PreToolUse 가드레일. 대상 경로를 정규화해 프로젝트 밖 rm -rf 만 막고(node_modules·dist 는 통과), git push 의 force 계열을 막되 --force-with-lease 는 통과시킨다. 판정은 JSON permissionDecision 으로만 전달하며 전 구간 fail-open. 의존성 없음.",
-      "version": "0.1.7",
+      "version": "0.2.0",
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",
       "keywords": ["guardrail", "hook", "safety", "rm-rf", "force-push", "prevent", "fail-open"]

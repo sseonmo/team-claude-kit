@@ -68,7 +68,7 @@ sweep('경로 정규화', [
 sweep('줄바꿈 · 줄 연속', [
   ['echo a\nrm -rf /', 'deny'],
   ['rm -rf \\\n  /etc', 'deny'],
-  ['cd /tmp\nrm -rf junk', 'deny'],
+  ['cd /tmp\nrm -rf junk', 'leak'],
 ])
 
 sweep('인용부호', [
@@ -81,50 +81,51 @@ sweep('인용부호', [
   ['git commit -m "git push --force 관련"', 'pass'],
 ])
 
-sweep('서브셸 스코프', [
+sweep('서브셸', [
   ['(rm -rf /)', 'deny'],
-  ['(cd /tmp && rm -rf junk)', 'deny'],
   ['(a && (rm -rf /))', 'deny'],
-  ['cd /tmp; (rm -rf dist)', 'deny'],
+  ['(cd /tmp && rm -rf junk)', 'leak'],
+  ['cd /tmp; (rm -rf dist)', 'pass'],
   ['(cd /tmp) && rm -rf dist', 'pass'],
   ['(cd ../x && npm i) && (rm -rf dist)', 'pass'],
   ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'pass'],
 ])
 
-// 0.1.4 의 회귀 3건이 전부 이 두 축에서 나왔다 — 그때 이 표에 없던 축이다.
-sweep('서브셸 × 알 수 없는 기준', [
-  ['cd - && (rm -rf ../x)', 'pass'],
-  ['cd $UNKNOWN && (rm -rf ../x)', 'pass'],
-  ['cd - && rm -rf ../x', 'pass'],
-  ['cd /tmp; ( (rm -rf junk) )', 'deny'],
-  ['cd /tmp && ( ( (rm -rf junk) ) )', 'deny'],
+// `cd` 는 따라가지 않는다 (v0.2.0). 상대경로는 언제나 프로젝트 루트 기준이다.
+// v0.1.1~0.1.7 이 `cd` 를 추적하다 릴리스마다 오탐을 냈고, 그 오탐이 전부 이 표의
+// 여러 축에 흩어져 있었다. 아래는 그때 문제가 됐던 형태 전부이며 지금은 **전부 통과**다.
+sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
+  ['cd /tmp && rm -rf junk', 'leak'],
+  ['cd - && rm -rf ../x', 'leak'],
+  ['cd $UNKNOWN && (rm -rf ../x)', 'leak'],
+  ['(cd /tmp && rm -rf junk)', 'leak'],
+  ['(cd ../x && npm i) && (rm -rf dist)', 'pass'],
+  ['cd /tmp; ( (rm -rf junk) )', 'leak'],
+  ['cd /tmp | cat; rm -rf dist', 'pass'],
+  ['{ cd /tmp; }; rm -rf junk', 'leak'],
+  ['! cd /tmp; rm -rf junk', 'leak'],
+  ['time cd /tmp && rm -rf junk', 'leak'],
 ])
 
-sweep('조건문 · 반복문 안의 cd', [
+sweep('조건문 · 반복문 · 함수 정의', [
   ['if false; then cd /tmp; fi; rm -rf dist', 'pass'],
   ['for d in a; do cd /tmp; done; rm -rf dist', 'pass'],
   ['while cd /tmp; do ls; done; rm -rf dist', 'pass'],
-  // 조건부여도 삭제 자체는 본다
-  ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
-  // 언제나 실행되는 것들은 기준을 바꾼다
-  ['time cd /tmp && rm -rf junk', 'deny'],
-  ['! cd /tmp; rm -rf junk', 'deny'],
-  // 브레이스 그룹은 즉시 실행인지 함수 정의 본문인지 알 수 없다
-  ['{ cd /tmp; }; rm -rf junk', 'leak'],
   ['cleanup() { cd /tmp; }\nrm -rf node_modules', 'pass'],
   ['deploy() {\n  cd /opt\n}\nrm -rf dist', 'pass'],
-  // 건너뛴 cd 뒤의 상대경로는 기준을 모른다
+  ['function deploy {\n  cd ../sibling\n}\nrm -rf node_modules', 'pass'],
   ['if [ -d packages/app ]; then\n  cd packages/app\n  rm -rf ../shared/node_modules\nfi', 'pass'],
+  // 삭제 자체는 문맥과 무관하게 본다
+  ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
 ])
 
-// 여러 줄로 쓰면 본문 줄에 키워드가 없다. 0.1.5 의 회귀가 이 축에서 나왔다.
 sweep('여러 줄 스크립트', [
   ['if [ -d /tmp/c ]; then\n  cd /tmp\nfi\nrm -rf node_modules', 'pass'],
   ['for d in a b; do\n  cd /tmp\ndone\nrm -rf dist', 'pass'],
   ['while true; do\n  cd /tmp\ndone\nrm -rf .next', 'pass'],
   ['if [ -d x ]; then\n  rm -rf /\nfi', 'deny'],
   ['for d in a; do\n  rm -rf ~\ndone', 'deny'],
-  ['if [ -d x ]; then\n  ls\nfi\ncd /tmp\nrm -rf junk', 'deny'],
+  ['if [ -d x ]; then\n  cd sub\n  rm -rf ~\nfi', 'deny'],
 ])
 
 sweep('명령 앞에 붙는 것들', [

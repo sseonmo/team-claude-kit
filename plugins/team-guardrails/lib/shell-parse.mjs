@@ -6,46 +6,20 @@
 //
 // 다루지 않는 것 (플러그인 포지션 — 실수를 막는 장치이지 악의를 막는 장치가 아니다):
 //   변수 치환 `P=~; rm -rf $P` · 명령 치환 `$(...)` · 스크립트 경유 `bash x.sh` ·
-//   인터프리터 경유 `python -c ...` · base64 인코딩
+//   인터프리터 경유 `python -c ...` · base64 인코딩 · **`cd` 로 옮긴 뒤의 상대경로**
 // 전부 통과한다. 정적 판정의 원리적 한계이며, 테스트에 기대값으로 명시돼 있다.
 
-/**
- * 명령을 세그먼트로 나누되 **위치 정보를 함께** 돌려준다.
- *   scopeId   — 서브셸 **인스턴스** 식별자 (top level 은 0)
- *   scopePath — 최상위부터 자기까지의 조상 사슬. 마지막이 `scopeId` 다.
- *   sepAfter  — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
- *
- * 텍스트만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 서브셸 안이었다는 사실이
- * 사라진다. 실제 셸에서 서브셸·파이프·백그라운드의 cd 는 밖으로 나오지 않으므로,
- * 그걸 모르면 밖의 rm 까지 엉뚱한 기준으로 판정해 정상 명령을 막는다.
- *
- * 깊이만으로는 부족하다. `(a) && (b)` 의 내용물은 둘 다 깊이 1 이라 형제 서브셸이
- * 한 덩어리로 보이고, 앞 서브셸의 cd 가 뒤 서브셸로 샌다. 그래서 인스턴스마다
- * 새 `scopeId` 를 부여한다.
- *
- * 부모를 한 단계만 들고 있어도 부족하다. `cd /tmp; ( (rm -rf junk) )` 의 바깥 괄호는
- * 자기 세그먼트를 갖지 않아 소비자 쪽 맵에 등록되지 않고, 거기서 사슬이 끊긴다.
- * 그래서 조상 전체(`scopePath`)를 준다.
- */
-export function splitCommand(command) {
+/** 인용부호 안이 아닌 곳의 `;` `&&` `||` `|` `&` `(` `)` 개행으로 명령을 나눈다. */
+export function splitSegments(command) {
   if (typeof command !== 'string') return []
 
   const segments = []
   let cur = ''
   let quote = null
-  let scopeCounter = 0
-  const scopes = [0] // 현재 스코프 스택. 마지막이 지금 스코프다.
 
-  const push = (sepAfter) => {
+  const push = () => {
     const text = cur.trim()
-    if (text) {
-      segments.push({
-        text,
-        scopeId: scopes[scopes.length - 1],
-        scopePath: [...scopes],
-        sepAfter,
-      })
-    }
+    if (text) segments.push(text)
     cur = ''
   }
 
@@ -69,18 +43,8 @@ export function splitCommand(command) {
       continue
     }
 
-    if (ch === ';' || ch === '\n') {
-      push(';')
-      continue
-    }
-    if (ch === '(') {
-      push('(')
-      scopes.push(++scopeCounter) // 열릴 때마다 새 인스턴스다
-      continue
-    }
-    if (ch === ')') {
-      push(')')
-      if (scopes.length > 1) scopes.pop()
+    if (ch === ';' || ch === '\n' || ch === '(' || ch === ')') {
+      push()
       continue
     }
     // `&` 는 명령 경계지만 `2>&1`·`&>` 의 `&` 는 리다이렉션의 일부다.
@@ -90,34 +54,21 @@ export function splitCommand(command) {
         cur += ch
         continue
       }
-      if (command[i + 1] === '&') {
-        i++
-        push('&&')
-      } else {
-        push('&')
-      }
+      if (command[i + 1] === '&') i++
+      push()
       continue
     }
     if (ch === '|') {
-      if (command[i + 1] === '|') {
-        i++
-        push('||')
-      } else {
-        push('|')
-      }
+      if (command[i + 1] === '|') i++
+      push()
       continue
     }
 
     cur += ch
   }
-  push(null)
+  push()
 
   return segments
-}
-
-/** 세그먼트 텍스트만 필요할 때. */
-export function splitSegments(command) {
-  return splitCommand(command).map((s) => s.text)
 }
 
 /** 세그먼트를 토큰으로 나누고 인용부호·이스케이프를 벗긴다. */
@@ -195,60 +146,14 @@ export function stripRedirections(tokens) {
   return out
 }
 
-// 명령 이름 **앞에** 올 수 있는 것들. 권한/실행 래퍼와 셸 키워드다.
+// 명령 이름 **앞에** 올 수 있는 것들. 실행 래퍼와 셸 키워드다.
 // 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
-// D1 은 sudo 를 벗기는데 D3 는 안 벗기고, D1 은 `{` 를 벗기는데 D3 는 안 벗기는 식이다.
-// 한 곳에 모아 그 자리를 없앤다.
-// 언제나 실행되는 것들 — 뒤의 명령이 돈다는 사실이 바뀌지 않는다.
-// `{`(브레이스 그룹)와 `!`(부정)도 여기다. 문법 장식일 뿐 실행을 막지 않는다.
-const EXEC_WRAPPERS = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', '{', '!'])
-// 조건·반복 블록을 여는 키워드 — 그 안의 명령은 **실행되지 않을 수도** 있다
-const BLOCK_OPENERS = new Set(['if', 'while', 'until', 'for', 'case', 'select'])
-// 블록을 닫는 키워드
-const BLOCK_CLOSERS = new Set(['fi', 'done', 'esac'])
-// 블록 안의 이음말 — 열지도 닫지도 않지만 명령 앞에 붙는다
-const BLOCK_JOINERS = new Set(['then', 'else', 'elif', 'do', 'in'])
+// D1 은 sudo 를 벗기는데 D3 는 안 벗기는 식이다. 한 곳에 모아 그 자리를 없앤다.
+const COMMAND_PREFIXES = new Set([
+  'sudo', 'env', 'command', 'nohup', 'time', 'exec', '!', '{', // 실행 래퍼
+  'if', 'elif', 'then', 'else', 'while', 'until', 'for', 'do', 'in', 'case', 'select', // 키워드
+])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-
-const isPrefix = (t) =>
-  EXEC_WRAPPERS.has(t) || BLOCK_OPENERS.has(t) || BLOCK_JOINERS.has(t) || ASSIGNMENT.test(t)
-
-/**
- * 이 세그먼트가 **자기 안에서** 조건·반복 문맥을 여는가.
- *
- * `if ...; then cd /tmp; fi` 의 `cd` 는 실행될 수도, 안 될 수도 있다. 실행된 것으로
- * 단정하면 그 뒤의 정상적인 프로젝트 내부 삭제가 전부 막힌다.
- * 반대로 `time cd /tmp`·`{ cd /tmp; }` 는 언제나 실행되므로 여기 해당하지 않는다.
- *
- * 여러 줄로 쓴 조건문의 본문에는 키워드가 없다. 그건 `blockDelta` 가 맡는다.
- */
-export function startsWithShellKeyword(tokens) {
-  for (const t of tokens) {
-    if (BLOCK_OPENERS.has(t) || BLOCK_JOINERS.has(t)) return true
-    if (!isPrefix(t)) return false
-  }
-  return false
-}
-
-/**
- * 이 세그먼트가 조건·반복 블록을 여는지(+1) 닫는지(-1) 알려준다.
- *
- * 세그먼트 하나만 보는 판정은 여러 줄 스크립트에서 무너진다 —
- * `if [ -d x ]; then` / `cd /tmp` / `fi` 로 줄이 갈리면 가운데 줄에는 키워드가 없다.
- * 블록이 열려 있는지를 줄 사이로 이어서 세야 한다.
- *
- * **명령 이름에 도달하면 멈춘다.** 계속 훑으면 `echo if` 나 `rm -rf fi` 처럼
- * 키워드가 인자로 등장한 경우까지 블록으로 세게 된다.
- */
-export function blockDelta(tokens) {
-  let delta = 0
-  for (const t of tokens) {
-    if (BLOCK_OPENERS.has(t)) delta++
-    else if (BLOCK_CLOSERS.has(t)) delta--
-    else if (!isPrefix(t)) break
-  }
-  return delta
-}
 
 /**
  * 명령 이름 앞의 래퍼·키워드·변수 할당을 걷어낸다.
@@ -258,7 +163,7 @@ export function blockDelta(tokens) {
  */
 export function stripCommandPrefixes(tokens) {
   let i = 0
-  while (i < tokens.length && isPrefix(tokens[i])) i++
+  while (i < tokens.length && (COMMAND_PREFIXES.has(tokens[i]) || ASSIGNMENT.test(tokens[i]))) i++
   return tokens.slice(i)
 }
 

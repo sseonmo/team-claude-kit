@@ -1,14 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  splitCommand,
   splitSegments,
   tokenize,
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
-  startsWithShellKeyword,
-  blockDelta,
 } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
@@ -179,126 +176,6 @@ test('stripRedirections: 대상이 붙어 있는 형태도 걷어낸다', () => 
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '>/dev/null']), ['rm', '-rf', 'x'])
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '2>&1']), ['rm', '-rf', 'x'])
   assert.deepEqual(stripRedirections(['rm', '-rf', 'x', '&>', 'log']), ['rm', '-rf', 'x'])
-})
-
-// ─────────────────────────────────────────────────────────────
-// splitCommand — 세그먼트의 "위치"를 알려준다.
-// 문자열만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 괄호 안이었다는 사실이
-// 사라져, 밖의 rm 까지 /tmp 기준으로 판정된다.
-// ─────────────────────────────────────────────────────────────
-
-test('splitCommand: 구분자 종류를 함께 돌려준다', () => {
-  assert.deepEqual(
-    splitCommand('a && b; c | d').map((s) => [s.text, s.sepAfter]),
-    [
-      ['a', '&&'],
-      ['b', ';'],
-      ['c', '|'],
-      ['d', null],
-    ]
-  )
-})
-
-test('splitCommand: 서브셸 안은 별도 스코프다', () => {
-  assert.deepEqual(
-    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.scopeId]),
-    [
-      ['cd /tmp', 1],
-      ['ls', 1],
-      ['rm -rf x', 0],
-    ]
-  )
-})
-
-test('splitCommand: 형제 서브셸은 서로 다른 스코프다', () => {
-  // 깊이만 보면 둘 다 1 이라 구분되지 않는다 — 이게 0.1.2 의 오탐 원인이었다
-  const [a, , b] = splitCommand('(cd sub && npm ci) && (rm -rf dist)')
-  assert.equal(a.text, 'cd sub')
-  assert.equal(b.text, 'rm -rf dist')
-  assert.notEqual(a.scopeId, b.scopeId, '형제 서브셸이 같은 스코프로 보이면 안 된다')
-})
-
-// 부모 한 단계만 들고 있으면, 세그먼트가 없는 중간 스코프에서 사슬이 끊긴다.
-// `cd /tmp; ( (rm -rf junk) )` 의 바깥 괄호가 자기 세그먼트를 갖지 않아 0.1.4 가 이걸 놓쳤다.
-test('splitCommand: 조상 사슬을 통째로 준다', () => {
-  const inner = splitCommand('cd /tmp; ( (rm -rf junk) )').at(-1)
-  assert.equal(inner.text, 'rm -rf junk')
-  assert.equal(inner.scopePath[0], 0, '사슬은 언제나 최상위에서 시작한다')
-  assert.equal(inner.scopePath.at(-1), inner.scopeId)
-  assert.equal(inner.scopePath.length, 3, '두 겹 서브셸이므로 0 → 바깥 → 안쪽')
-})
-
-test('splitCommand: 최상위 세그먼트의 사슬은 [0] 이다', () => {
-  assert.deepEqual(splitCommand('rm -rf x')[0].scopePath, [0])
-})
-
-test('startsWithShellKeyword: 조건부로 실행되는 자리인지 알려준다', () => {
-  assert.equal(startsWithShellKeyword(['then', 'cd', '/tmp']), true)
-  assert.equal(startsWithShellKeyword(['do', 'cd', '/tmp']), true)
-  assert.equal(startsWithShellKeyword(['while', 'cd', '/tmp']), true)
-  // 실행 래퍼는 조건이 아니다 — 언제나 실행된다
-  assert.equal(startsWithShellKeyword(['time', 'cd', '/tmp']), false)
-  assert.equal(startsWithShellKeyword(['sudo', 'cd', '/tmp']), false)
-  assert.equal(startsWithShellKeyword(['cd', '/tmp']), false)
-  assert.equal(startsWithShellKeyword([]), false)
-  // 브레이스 그룹과 부정도 무조건 실행된다 — 조건이 아니다
-  assert.equal(startsWithShellKeyword(['{', 'cd', '/tmp']), false)
-  assert.equal(startsWithShellKeyword(['!', 'cd', '/tmp']), false)
-})
-
-// ─────────────────────────────────────────────────────────────
-// blockDelta — 조건·반복 블록의 열고 닫힘.
-// 세그먼트 하나만 보면 여러 줄로 쓴 조건문의 본문에는 키워드가 없다.
-//   if [ -d x ]; then
-//     cd /tmp        ← 이 줄만 보면 평범한 cd 다
-//   fi
-// 그래서 블록이 열려 있는지를 줄 사이로 이어서 세야 한다.
-// ─────────────────────────────────────────────────────────────
-
-test('blockDelta: 블록을 여는 키워드', () => {
-  assert.equal(blockDelta(['if', '[', '-d', 'x', ']']), 1)
-  assert.equal(blockDelta(['for', 'f', 'in', 'a', 'b']), 1)
-  assert.equal(blockDelta(['while', 'true']), 1)
-  assert.equal(blockDelta(['until', 'false']), 1)
-  assert.equal(blockDelta(['case', '$x']), 1)
-})
-
-test('blockDelta: 블록을 닫는 키워드', () => {
-  assert.equal(blockDelta(['fi']), -1)
-  assert.equal(blockDelta(['done']), -1)
-  assert.equal(blockDelta(['esac']), -1)
-})
-
-test('blockDelta: 블록 안의 이음말은 열지도 닫지도 않는다', () => {
-  assert.equal(blockDelta(['then']), 0)
-  assert.equal(blockDelta(['else']), 0)
-  assert.equal(blockDelta(['do']), 0)
-  assert.equal(blockDelta(['elif', 'true']), 0)
-})
-
-test('blockDelta: 평범한 명령은 0 이다', () => {
-  assert.equal(blockDelta(['cd', '/tmp']), 0)
-  assert.equal(blockDelta(['rm', '-rf', '/']), 0)
-  assert.equal(blockDelta(['{', 'cd', '/tmp']), 0)
-  assert.equal(blockDelta([]), 0)
-})
-
-test('blockDelta: 키워드가 인자로 등장하면 세지 않는다 — 오탐 방지선', () => {
-  assert.equal(blockDelta(['echo', 'if', 'done']), 0)
-  assert.equal(blockDelta(['rm', '-rf', 'fi']), 0)
-  assert.equal(blockDelta(['git', 'commit', '-m', 'done']), 0)
-})
-
-test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {
-  assert.deepEqual(
-    splitCommand('a & b && c').map((s) => s.sepAfter),
-    ['&', '&&', null]
-  )
-})
-
-test('splitSegments 는 splitCommand 의 텍스트만 뽑은 것이다', () => {
-  const c = '(cd /tmp && ls); rm -rf x'
-  assert.deepEqual(splitSegments(c), splitCommand(c).map((s) => s.text))
 })
 
 // ─────────────────────────────────────────────────────────────

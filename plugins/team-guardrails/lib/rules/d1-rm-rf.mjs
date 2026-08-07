@@ -3,16 +3,29 @@
 // 대상 경로를 보지 않고 `rm -rf` 를 무조건 막으면 `rm -rf node_modules` 까지 막힌다.
 // 그런 훅은 오탐이 일상이 되고, 사용자는 훅을 끈다. 꺼진 훅은 없는 훅과 같다.
 // 그래서 이 룰의 판정은 "명령이 무엇인가"가 아니라 "대상이 어디인가"다.
+//
+// **`cd` 가 어디로 갔는지는 해석하지 않는다.** 앞에 `cd` 가 나왔다는 사실만 보고,
+// 그 뒤의 상대경로는 판정을 접는다. 절대경로는 그대로 판정한다.
+//
+// v0.1.1~0.1.7 이 `cd` 의 목적지를 추적했고 릴리스마다 오탐을 냈다 — 서브셸·형제 서브셸·
+// 파이프·조건문·반복문·여러 줄 스크립트·브레이스 그룹·함수 정의가 전부 "그 `cd` 가 실제로
+// 실행되는가"에 다르게 답하는데, 그건 문자열만 보고 알 수 없다.
+// `deploy() { cd /tmp; }` 와 `{ cd /tmp; }` 는 글자가 거의 같지만 답이 반대다.
+//
+// 반대로 `cd` 를 통째로 무시해도 안 된다. `cd packages/app && rm -rf ../shared` 의 `..` 은
+// 옮긴 위치 기준이라, 프로젝트 루트로 풀면 정상 명령이 "프로젝트 밖"이 된다.
+// 그래서 "모른다"로 두는 것이 두 오탐을 동시에 피하는 유일한 자리다.
+//
+// 잃는 것은 `cd /tmp && rm -rf junk` 류의 미탐이다. 파국적인 대상(`/`·`~`·프로젝트 밖
+// 절대경로)은 절대경로라 `cd` 와 무관하게 그대로 막힌다.
 
 import path from 'node:path'
 import {
-  splitCommand,
+  splitSegments,
   tokenize,
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
-  startsWithShellKeyword,
-  blockDelta,
 } from '../shell-parse.mjs'
 
 export const id = 'D1'
@@ -27,55 +40,14 @@ function expandHome(p, ctx) {
   return p
 }
 
-/**
- * 같은 줄의 앞선 `cd` 를 반영한 기준 디렉토리.
- * 없으면 `cd /tmp && rm -rf junk` 의 `junk` 가 프로젝트 안으로 풀려 그냥 통과한다.
- * 어디로 갔는지 알 수 없으면 `null` — 그 뒤의 상대경로는 판정하지 않는다(fail-open).
- */
-function nextBase(base, target, ctx) {
-  if (target === undefined) return ctx.home // `cd` 단독은 홈으로 간다
-  if (target === '-') return null // 직전 디렉토리 — 알 수 없다
-  const p = expandHome(target, ctx)
-  // 절대경로든 상대경로든 변수가 남아 있으면 어디로 갔는지 모른다.
-  // 리터럴로 취급하면 실재하지 않는 경로를 기준 삼아 정상 삭제를 막는다.
-  if (p.includes('$')) return null
-  if (path.isAbsolute(p)) return p
-  if (base === null) return null
-  return path.resolve(base, p)
-}
-
 /** 판정 불능이면 null 을 돌려준다. */
-function resolveTarget(raw, base, ctx) {
+function resolveTarget(raw, ctx, cdSeen) {
   const p = expandHome(raw, ctx)
   // 셸 변수는 펴지 않는다. 리터럴로 취급하면 존재하지도 않는 경로를 사유에 찍으며 막게 된다.
   if (p.includes('$')) return null
-  if (path.isAbsolute(p)) return path.resolve(p)
-  if (base === null) return null
-  return path.resolve(base, p)
-}
-
-// 실제 셸에서 파이프·백그라운드로 이어지는 명령은 서브셸에서 돌아 cd 가 밖으로 나오지 않는다.
-const CD_ESCAPES = new Set([';', '&&', '||', '(', ')', null])
-
-/**
- * 이 세그먼트가 속한 스코프의 기준 디렉토리.
- * 아직 등록되지 않은 스코프면 **가장 가까운 등록된 조상**에서 물려받는다.
- *
- * 한 단계 위만 보면 안 된다 — 세그먼트를 갖지 않는 중간 괄호에서 사슬이 끊긴다.
- * 그리고 `null`(판정 불능)은 그대로 물려받아야 한다. 기본값으로 덮으면
- * "모른다"가 "프로젝트 루트다"로 되살아나 정상 명령을 막는다.
- */
-function baseFor(seg, baseByScope, ctx) {
-  for (let i = seg.scopePath.length - 1; i >= 0; i--) {
-    const id = seg.scopePath[i]
-    if (baseByScope.has(id)) {
-      const inherited = baseByScope.get(id)
-      baseByScope.set(seg.scopeId, inherited)
-      return inherited
-    }
-  }
-  baseByScope.set(seg.scopeId, ctx.cwd)
-  return ctx.cwd
+  // 앞에 cd 가 있었다면 이 상대경로가 어디를 가리키는지 모른다
+  if (cdSeen && !path.isAbsolute(p)) return null
+  return path.resolve(ctx.cwd, p)
 }
 
 /** 위험하면 사유 문자열을, 안전하면 null 을 돌려준다. */
@@ -96,39 +68,15 @@ export function check(toolName, toolInput, ctx) {
     const command = toolInput && toolInput.command
     if (typeof command !== 'string' || command === '') return null
 
-    // 기준 디렉토리는 서브셸 인스턴스마다 따로 둔다.
-    // 새 스코프는 자기를 감싼 스코프의 현재 기준을 물려받는다.
-    const baseByScope = new Map([[0, ctx.cwd]])
+    let cdSeen = false // 목적지는 안 본다. 있었다는 사실만 본다.
 
-    let blockDepth = 0 // 조건·반복 블록 안인가 (여러 줄 스크립트에서 줄 사이로 이어진다)
-    let braceDepth = 0 // 브레이스 그룹 안인가 (함수 정의 본문일 수 있다)
-
-    for (const seg of splitCommand(command)) {
-      const base = baseFor(seg, baseByScope, ctx)
-
-      const segTokens = stripRedirections(tokenize(seg.text))
-      blockDepth = Math.max(0, blockDepth + blockDelta(segTokens))
-      // 여는 브레이스는 세그먼트 맨 앞에만 온다. 닫는 쪽은 인자로 위장할 수 있지만
-      // 0 아래로 내려가지 않으므로 해가 없다.
-      if (segTokens[0] === '{') braceDepth++
-      braceDepth = Math.max(0, braceDepth - segTokens.filter((t) => t === '}').length)
-
-      const tokens = stripCommandPrefixes(segTokens)
+    for (const segment of splitSegments(command)) {
+      const tokens = stripCommandPrefixes(stripRedirections(tokenize(segment)))
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
-        // 파이프·백그라운드의 cd 는 서브셸에서 돌아 밖에 남지 않는다 — 기준이 그대로다
-        if (!CD_ESCAPES.has(seg.sepAfter)) continue
-
-        // 실행 여부를 알 수 없는 두 자리. "일어나지 않았다"로 단정하면 그 뒤의 상대경로가
-        // 옛 기준으로 풀려 오탐이 된다. 모르면 모른다고 두고 판정을 접는다.
-        //   · 조건·반복 블록 안 — 실행될 수도, 안 될 수도 있다
-        //   · 브레이스 그룹 — 즉시 실행되는 그룹인지 함수 정의의 본문인지 구분되지 않는다
-        //     (여러 줄로 쓰면 본문 줄에 `{` 가 없으므로 깊이로 센다)
-        const unknown = blockDepth > 0 || braceDepth > 0 || startsWithShellKeyword(segTokens)
-
-        baseByScope.set(seg.scopeId, unknown ? null : nextBase(base, argv[1], ctx))
+        cdSeen = true
         continue
       }
       if (name !== 'rm') continue
@@ -139,8 +87,8 @@ export function check(toolName, toolInput, ctx) {
       if (!recursive || !force) continue
 
       for (const raw of argv.slice(1)) {
-        const resolved = resolveTarget(raw, base, ctx)
-        if (resolved === null) continue // 기준 디렉토리를 모른다 — 막지 않는다
+        const resolved = resolveTarget(raw, ctx, cdSeen)
+        if (resolved === null) continue // 판정 불능 — 막지 않는다
 
         const why = dangerOf(resolved, ctx)
         if (!why) continue
