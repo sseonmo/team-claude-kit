@@ -28,8 +28,11 @@ function nextBase(base, target, ctx) {
   if (target === undefined) return ctx.home // `cd` 단독은 홈으로 간다
   if (target === '-') return null // 직전 디렉토리 — 알 수 없다
   const p = expandHome(target, ctx)
+  // 절대경로든 상대경로든 변수가 남아 있으면 어디로 갔는지 모른다.
+  // 리터럴로 취급하면 실재하지 않는 경로를 기준 삼아 정상 삭제를 막는다.
+  if (p.includes('$')) return null
   if (path.isAbsolute(p)) return p
-  if (base === null || p.includes('$')) return null
+  if (base === null) return null
   return path.resolve(base, p)
 }
 
@@ -64,22 +67,26 @@ export function check(toolName, toolInput, ctx) {
     const command = toolInput && toolInput.command
     if (typeof command !== 'string' || command === '') return null
 
-    let base = ctx.cwd
-    const outerBases = [] // 서브셸에 들어갈 때 바깥 기준을 쌓아둔다
+    // 기준 디렉토리는 서브셸 인스턴스마다 따로 둔다.
+    // 새 스코프는 자기를 감싼 스코프의 현재 기준을 물려받는다.
+    const baseByScope = new Map([[0, ctx.cwd]])
 
     for (const seg of splitCommand(command)) {
-      // 괄호 깊이에 맞춰 기준 디렉토리를 넣고 뺀다 — 서브셸을 나오면 원래 자리로 돌아온다
-      while (outerBases.length < seg.depth) outerBases.push(base)
-      while (outerBases.length > seg.depth) base = outerBases.pop()
+      if (!baseByScope.has(seg.scopeId)) {
+        baseByScope.set(seg.scopeId, baseByScope.get(seg.parentScope) ?? ctx.cwd)
+      }
+      const base = baseByScope.get(seg.scopeId)
 
       let tokens = stripRedirections(tokenize(seg.text))
-      if (tokens[0] === 'sudo' || tokens[0] === '{') tokens = tokens.slice(1)
+      while (tokens[0] === 'sudo' || tokens[0] === '{') tokens = tokens.slice(1)
 
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
-        if (CD_ESCAPES.has(seg.sepAfter)) base = nextBase(base, argv[1], ctx)
+        if (CD_ESCAPES.has(seg.sepAfter)) {
+          baseByScope.set(seg.scopeId, nextBase(base, argv[1], ctx))
+        }
         continue
       }
       if (name !== 'rm') continue

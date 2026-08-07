@@ -185,23 +185,44 @@ test('stripRedirections: 대상이 붙어 있는 형태도 걷어낸다', () => 
 // ─────────────────────────────────────────────────────────────
 
 test('splitCommand: 구분자 종류를 함께 돌려준다', () => {
-  assert.deepEqual(splitCommand('a && b; c | d'), [
-    { text: 'a', depth: 0, sepAfter: '&&' },
-    { text: 'b', depth: 0, sepAfter: ';' },
-    { text: 'c', depth: 0, sepAfter: '|' },
-    { text: 'd', depth: 0, sepAfter: null },
-  ])
-})
-
-test('splitCommand: 괄호 깊이를 센다', () => {
   assert.deepEqual(
-    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.depth]),
+    splitCommand('a && b; c | d').map((s) => [s.text, s.sepAfter]),
     [
-      ['cd /tmp', 1],
-      ['ls', 1],
-      ['rm -rf x', 0],
+      ['a', '&&'],
+      ['b', ';'],
+      ['c', '|'],
+      ['d', null],
     ]
   )
+})
+
+test('splitCommand: 서브셸 안은 별도 스코프다', () => {
+  assert.deepEqual(
+    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.scopeId, s.parentScope]),
+    [
+      ['cd /tmp', 1, 0],
+      ['ls', 1, 0],
+      ['rm -rf x', 0, 0],
+    ]
+  )
+})
+
+test('splitCommand: 형제 서브셸은 서로 다른 스코프다', () => {
+  // 깊이만 보면 둘 다 1 이라 구분되지 않는다 — 이게 0.1.2 의 오탐 원인이었다
+  const segs = splitCommand('(cd sub && npm ci) && (rm -rf dist)')
+  const [a, , b] = segs
+  assert.equal(a.text, 'cd sub')
+  assert.equal(b.text, 'rm -rf dist')
+  assert.notEqual(a.scopeId, b.scopeId, '형제 서브셸이 같은 스코프로 보이면 안 된다')
+  assert.equal(a.parentScope, 0)
+  assert.equal(b.parentScope, 0)
+})
+
+test('splitCommand: 중첩 서브셸은 부모를 가리킨다', () => {
+  const inner = splitCommand('(a && (rm -rf x))').at(-1)
+  assert.equal(inner.text, 'rm -rf x')
+  assert.notEqual(inner.scopeId, 0)
+  assert.notEqual(inner.parentScope, 0)
 })
 
 test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {

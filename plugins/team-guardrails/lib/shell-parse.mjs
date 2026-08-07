@@ -11,12 +11,18 @@
 
 /**
  * 명령을 세그먼트로 나누되 **위치 정보를 함께** 돌려준다.
- *   depth    — 괄호 중첩 깊이
- *   sepAfter — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
+ *   depth       — 괄호 중첩 깊이
+ *   scopeId     — 서브셸 **인스턴스** 식별자 (top level 은 0)
+ *   parentScope — 그 서브셸을 감싼 스코프
+ *   sepAfter    — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
  *
  * 텍스트만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 서브셸 안이었다는 사실이
  * 사라진다. 실제 셸에서 서브셸·파이프·백그라운드의 cd 는 밖으로 나오지 않으므로,
  * 그걸 모르면 밖의 rm 까지 엉뚱한 기준으로 판정해 정상 명령을 막는다.
+ *
+ * 깊이만으로는 부족하다. `(a) && (b)` 의 내용물은 둘 다 깊이 1 이라 형제 서브셸이
+ * 한 덩어리로 보이고, 앞 서브셸의 cd 가 뒤 서브셸로 샌다. 그래서 인스턴스마다
+ * 새 `scopeId` 를 부여한다.
  */
 export function splitCommand(command) {
   if (typeof command !== 'string') return []
@@ -24,11 +30,20 @@ export function splitCommand(command) {
   const segments = []
   let cur = ''
   let quote = null
-  let depth = 0
+  let scopeCounter = 0
+  const scopes = [0] // 현재 스코프 스택. 마지막이 지금 스코프다.
 
   const push = (sepAfter) => {
     const text = cur.trim()
-    if (text) segments.push({ text, depth, sepAfter })
+    if (text) {
+      segments.push({
+        text,
+        depth: scopes.length - 1,
+        scopeId: scopes[scopes.length - 1],
+        parentScope: scopes.length > 1 ? scopes[scopes.length - 2] : 0,
+        sepAfter,
+      })
+    }
     cur = ''
   }
 
@@ -58,12 +73,12 @@ export function splitCommand(command) {
     }
     if (ch === '(') {
       push('(')
-      depth++
+      scopes.push(++scopeCounter) // 열릴 때마다 새 인스턴스다
       continue
     }
     if (ch === ')') {
       push(')')
-      depth = Math.max(0, depth - 1)
+      if (scopes.length > 1) scopes.pop()
       continue
     }
     // `&` 는 명령 경계지만 `2>&1`·`&>` 의 `&` 는 리다이렉션의 일부다.

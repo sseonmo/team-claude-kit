@@ -185,6 +185,31 @@ test('D1: 파이프·백그라운드의 cd 도 밖으로 새지 않는다', () =
 
 test('D1: 그래도 서브셸 안에서는 그 안의 cd 가 적용된다', () => {
   denied('(cd /tmp && rm -rf junk)')
+  denied('(cd /tmp && (rm -rf junk))')
+})
+
+test('D1: 형제 서브셸끼리도 cd 가 새지 않는다', () => {
+  // 깊이만 보면 두 서브셸의 내용물이 모두 depth 1 이라 구분되지 않았다
+  passed('(cd ../other && npm i) && (rm -rf dist)')
+  passed('(cd /tmp && ls) && (rm -rf dist)')
+  passed('(cd /tmp && ls); (rm -rf node_modules)')
+})
+
+test('D1: 스코프 상속 방향은 한 쪽이다 — 안은 밖을 물려받고, 밖은 안을 모른다', () => {
+  // 바깥의 cd 는 서브셸 안에도 적용된다
+  denied('cd /tmp; (rm -rf dist)')
+  denied('cd /tmp && (cd .. && rm -rf x)')
+  // 서브셸 안의 cd 는 바깥에 남지 않는다
+  passed('(cd /tmp) && rm -rf dist')
+})
+
+test('D1: cd 대상 안에 변수가 있으면 기준을 세우지 않는다', () => {
+  passed('cd /opt/$VER && rm -rf build')
+  passed('cd ${DEPLOY_DIR} && rm -rf current')
+})
+
+test('D1: 선행 토큰이 여러 개 붙어도 벗겨낸다', () => {
+  denied('{ sudo rm -rf /; }')
 })
 
 test('D1: cd 뒤에 와도 변수 대상은 판정하지 않는다 (의도된 동작)', () => {
