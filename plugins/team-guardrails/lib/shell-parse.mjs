@@ -193,6 +193,28 @@ export function stripRedirections(tokens) {
   return out
 }
 
+// 명령 이름 **앞에** 올 수 있는 것들. 권한/실행 래퍼와 셸 키워드다.
+// 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
+// D1 은 sudo 를 벗기는데 D3 는 안 벗기고, D1 은 `{` 를 벗기는데 D3 는 안 벗기는 식이다.
+// 한 곳에 모아 그 자리를 없앤다.
+const COMMAND_PREFIXES = new Set([
+  'sudo', 'env', 'command', 'nohup', 'time', 'exec', // 실행 래퍼
+  '!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', // 셸 키워드
+])
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+/**
+ * 명령 이름 앞의 래퍼·키워드·변수 할당을 걷어낸다.
+ *
+ * **맨 앞에서만** 벗긴다. 중간부터 벗기면 `echo sudo rm -rf /` 가 삭제 명령으로 보인다 —
+ * 미탐을 줄이려다 오탐을 만드는 전형적인 자리다.
+ */
+export function stripCommandPrefixes(tokens) {
+  let i = 0
+  while (i < tokens.length && (COMMAND_PREFIXES.has(tokens[i]) || ASSIGNMENT.test(tokens[i]))) i++
+  return tokens.slice(i)
+}
+
 /**
  * 토큰을 플래그와 operand 로 가른다.
  *   short — 묶인 단문자를 낱개로 편 집합 (`-rf` → r, f)

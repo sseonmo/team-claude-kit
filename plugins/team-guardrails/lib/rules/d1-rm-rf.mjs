@@ -5,7 +5,13 @@
 // 그래서 이 룰의 판정은 "명령이 무엇인가"가 아니라 "대상이 어디인가"다.
 
 import path from 'node:path'
-import { splitCommand, tokenize, classifyArgv, stripRedirections } from '../shell-parse.mjs'
+import {
+  splitCommand,
+  tokenize,
+  classifyArgv,
+  stripRedirections,
+  stripCommandPrefixes,
+} from '../shell-parse.mjs'
 
 export const id = 'D1'
 
@@ -77,9 +83,7 @@ export function check(toolName, toolInput, ctx) {
       }
       const base = baseByScope.get(seg.scopeId)
 
-      let tokens = stripRedirections(tokenize(seg.text))
-      while (tokens[0] === 'sudo' || tokens[0] === '{') tokens = tokens.slice(1)
-
+      const tokens = stripCommandPrefixes(stripRedirections(tokenize(seg.text)))
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 

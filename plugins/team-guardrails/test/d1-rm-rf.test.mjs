@@ -208,8 +208,27 @@ test('D1: cd 대상 안에 변수가 있으면 기준을 세우지 않는다', (
   passed('cd ${DEPLOY_DIR} && rm -rf current')
 })
 
-test('D1: 선행 토큰이 여러 개 붙어도 벗겨낸다', () => {
+test('D1: 명령 앞에 붙는 것들을 벗겨낸다', () => {
   denied('{ sudo rm -rf /; }')
+  denied('! rm -rf /')
+  denied('time rm -rf /')
+  denied('command rm -rf /')
+  denied('nohup rm -rf /')
+  denied('exec rm -rf /')
+  denied('env FOO=1 rm -rf /')
+  denied('DEBUG=1 rm -rf /')
+})
+
+test('D1: 셸 키워드 뒤의 명령도 본다', () => {
+  denied('if [ -d dist ]; then rm -rf /; fi')
+  denied('for f in a b; do rm -rf /; done')
+  denied('while true; do rm -rf /; done')
+})
+
+test('D1: 접두어가 인자로 등장하면 벗기지 않는다 — 오탐 방지선', () => {
+  passed('echo sudo rm -rf /')
+  passed('git commit -m "time rm -rf /"')
+  passed('rm -rf time')
 })
 
 test('D1: cd 뒤에 와도 변수 대상은 판정하지 않는다 (의도된 동작)', () => {

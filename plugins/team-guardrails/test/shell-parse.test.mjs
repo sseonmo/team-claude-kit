@@ -6,6 +6,7 @@ import {
   tokenize,
   classifyArgv,
   stripRedirections,
+  stripCommandPrefixes,
 } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
@@ -235,6 +236,51 @@ test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {
 test('splitSegments 는 splitCommand 의 텍스트만 뽑은 것이다', () => {
   const c = '(cd /tmp && ls); rm -rf x'
   assert.deepEqual(splitSegments(c), splitCommand(c).map((s) => s.text))
+})
+
+// ─────────────────────────────────────────────────────────────
+// 명령 앞에 붙는 것들 — 이 부류를 룰마다 따로 처리하다 세 번 새어나갔다.
+// (D1 은 sudo 를 벗기는데 D3 는 안 벗기고, D1 은 `{` 를 벗기는데 D3 는 안 벗기고…)
+// 한 곳에서 처리해 룰 사이 비대칭이 생길 자리를 없앤다.
+// ─────────────────────────────────────────────────────────────
+
+test('stripCommandPrefixes: 권한·실행 래퍼를 벗긴다', () => {
+  assert.deepEqual(stripCommandPrefixes(['sudo', 'rm', '-rf', '/']), ['rm', '-rf', '/'])
+  assert.deepEqual(stripCommandPrefixes(['time', 'rm', '-rf', '/']), ['rm', '-rf', '/'])
+  assert.deepEqual(stripCommandPrefixes(['command', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['nohup', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['exec', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['env', 'rm']), ['rm'])
+})
+
+test('stripCommandPrefixes: 셸 키워드를 벗긴다', () => {
+  assert.deepEqual(stripCommandPrefixes(['then', 'rm', '-rf', '/']), ['rm', '-rf', '/'])
+  assert.deepEqual(stripCommandPrefixes(['do', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['else', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['if', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['while', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['!', 'rm']), ['rm'])
+  assert.deepEqual(stripCommandPrefixes(['{', 'rm']), ['rm'])
+})
+
+test('stripCommandPrefixes: 변수 할당 접두를 벗긴다', () => {
+  assert.deepEqual(stripCommandPrefixes(['DEBUG=1', 'rm', '-rf', '/']), ['rm', '-rf', '/'])
+  assert.deepEqual(stripCommandPrefixes(['env', 'FOO=1', 'BAR=2', 'rm']), ['rm'])
+})
+
+test('stripCommandPrefixes: 여러 겹도 벗긴다', () => {
+  assert.deepEqual(stripCommandPrefixes(['{', 'sudo', 'DEBUG=1', 'rm', '/']), ['rm', '/'])
+})
+
+test('stripCommandPrefixes: 첫 토큰이 아니면 벗기지 않는다 — 오탐 방지선', () => {
+  // `echo sudo rm -rf /` 가 삭제 명령으로 보이면 안 된다
+  assert.deepEqual(stripCommandPrefixes(['echo', 'sudo', 'rm']), ['echo', 'sudo', 'rm'])
+  assert.deepEqual(stripCommandPrefixes(['rm', '-rf', 'time']), ['rm', '-rf', 'time'])
+})
+
+test('stripCommandPrefixes: 전부 접두어면 빈 배열', () => {
+  assert.deepEqual(stripCommandPrefixes(['sudo']), [])
+  assert.deepEqual(stripCommandPrefixes([]), [])
 })
 
 test('stripRedirections: 평범한 인자는 건드리지 않는다', () => {

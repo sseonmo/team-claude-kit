@@ -5,7 +5,13 @@
 // 이 룰이 막으려는 사고가 아니고, 예외로 두지 않으면 정당한 rebase 작업이 전부 막힌다.
 
 import path from 'node:path'
-import { splitSegments, tokenize, classifyArgv, stripRedirections } from '../shell-parse.mjs'
+import {
+  splitSegments,
+  tokenize,
+  classifyArgv,
+  stripRedirections,
+  stripCommandPrefixes,
+} from '../shell-parse.mjs'
 
 export const id = 'D3'
 
@@ -21,8 +27,7 @@ export function check(toolName, toolInput, _ctx) {
     if (typeof command !== 'string' || command === '') return null
 
     for (const segment of splitSegments(command)) {
-      let raw = stripRedirections(tokenize(segment))
-      if (raw[0] === 'sudo') raw = raw.slice(1)
+      const raw = stripCommandPrefixes(stripRedirections(tokenize(segment)))
       if (path.basename(raw[0] || '') !== 'git') continue
 
       // `git` 자신과 값을 받는 전역 옵션을 걷어내면 서브커맨드가 맨 앞에 온다

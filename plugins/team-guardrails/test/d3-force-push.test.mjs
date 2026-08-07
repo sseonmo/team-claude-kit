@@ -49,8 +49,15 @@ test('D3: 한 줄에 여러 명령이 있어도 각각 본다', () => {
   denied('npm test && git push --force')
 })
 
-test('D3: sudo 를 앞에 붙여도 잡는다 (D1 과 같은 처리)', () => {
+test('D3: 명령 앞에 붙는 것들을 벗겨낸다 (D1 과 같은 처리)', () => {
   denied('sudo git push --force')
+  denied('{ git push -f; }')
+  denied('DEBUG=1 git push -f')
+  denied('if true; then git push -f; fi')
+})
+
+test('D3: 접두어가 인자로 등장하면 벗기지 않는다', () => {
+  passed('echo sudo git push --force')
 })
 
 test('D3: 서브셸 안도 본다', () => {
