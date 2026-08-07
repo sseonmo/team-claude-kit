@@ -27,7 +27,10 @@ export function check(toolName, toolInput, _ctx) {
     if (typeof command !== 'string' || command === '') return null
 
     for (const segment of splitSegments(command)) {
-      const raw = stripCommandPrefixes(stripRedirections(tokenize(segment)))
+      // 이 룰에는 이동 축이 없다 — `nice`·`timeout` 아래의 git 은 실제로 실행되므로 벗긴다
+      const raw = stripCommandPrefixes(stripRedirections(tokenize(segment)), {
+        execWrappers: true,
+      })
       if (path.basename(raw[0] || '') !== 'git') continue
 
       // `git` 자신과 값을 받는 전역 옵션을 걷어내면 서브커맨드가 맨 앞에 온다

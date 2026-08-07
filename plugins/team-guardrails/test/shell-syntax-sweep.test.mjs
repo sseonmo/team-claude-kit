@@ -122,7 +122,8 @@ sweep('cd 는 따라가지 않는다 — 전부 통과가 정상', [
 sweep('조건문 · 반복문 · 함수 정의', [
   // 이동이 실제로 일어나므로 대상은 프로젝트 밖이다 — 놓치는 쪽
   ['for d in a; do cd /tmp; done; rm -rf dist', 'leak'], // /tmp/dist
-  ['while cd /tmp; do ls; done; rm -rf dist', 'leak'], // /tmp/dist
+  // 조건절의 `cd` 는 한 번 실행되고 성공하면 즉시 루프를 끝낸다 — 이동은 남는다
+  ['until cd /tmp; do ls; done; rm -rf dist', 'leak'], // /tmp/dist
   // 이동이 일어나지 않으므로 대상은 프로젝트 안이다 — 막으면 오탐
   ['if false; then cd /tmp; fi; rm -rf dist', 'pass'],
   ['cleanup() { cd /tmp; }\nrm -rf node_modules', 'pass'], // 정의만 됐다
@@ -140,7 +141,7 @@ sweep('여러 줄 스크립트', [
   ['if [ -d /tmp/c ]; then\n  cd /tmp\nfi\nrm -rf node_modules', 'pass'],
   // 반복문 본문은 실제로 실행된다 — 대상은 프로젝트 밖이고, 놓치는 쪽
   ['for d in a b; do\n  cd /tmp\ndone\nrm -rf dist', 'leak'],
-  ['while true; do\n  cd /tmp\ndone\nrm -rf .next', 'leak'],
+  ['until cd /tmp; do\n  sleep 1\ndone\nrm -rf .next', 'leak'],
   ['if [ -d x ]; then\n  rm -rf /\nfi', 'deny'],
   ['for d in a; do\n  rm -rf ~\ndone', 'deny'],
   ['if [ -d x ]; then\n  cd sub\n  rm -rf ~\nfi', 'deny'],
@@ -159,4 +160,27 @@ sweep('명령 앞에 붙는 것들', [
   ['echo sudo rm -rf /', 'pass'],
   ['rm -rf time', 'pass'],
   ['sudo -u root rm -rf /', 'leak'], // 값을 받는 sudo 플래그는 다루지 않는다
+])
+
+// `nice`·`timeout` 은 외부 바이너리를 exec 한다. 그래서 축마다 답이 반대다:
+//   삭제·push 판정 — 실제로 그 명령이 실행되므로 벗겨야 한다
+//   이동 판정      — `cd` 는 빌트인이라 exec 되지 않고, 셸의 위치는 그대로다
+sweep('exec 래퍼 — nice · timeout', [
+  ['nice rm -rf /', 'deny'],
+  ['nice -n 10 rm -rf /', 'deny'], // 값을 받는 플래그
+  ['nice -10 rm -rf /', 'deny'], // 붙여 쓴 조정값
+  ['timeout 60 rm -rf /', 'deny'], // 값이 플래그 없이 온다
+  ['timeout 5s git push --force', 'deny'], // 접미사가 붙은 값
+  ['timeout --signal=KILL 30 git push --force', 'deny'],
+  ['nice git push -f', 'deny'],
+  // 이동 판정에서는 벗기지 않는다 — `nice cd` 는 셸의 위치를 바꾸지 못하므로
+  // 뒤의 상대경로는 프로젝트 루트 기준이고, 실제 대상은 프로젝트 밖이다
+  ['nice cd /tmp; rm -rf ../outside', 'deny'],
+  ['timeout 5 cd /tmp; rm -rf ../outside', 'deny'],
+  // 래퍼가 인자로 등장하면 벗기지 않는다
+  ['echo nice rm -rf /', 'pass'],
+  ['rm -rf nice', 'pass'],
+  ['rm -rf timeout', 'pass'],
+  // 벗긴 뒤 명령 이름이 다르면 판정하지 않는다
+  ['nice echo rm -rf /', 'pass'],
 ])

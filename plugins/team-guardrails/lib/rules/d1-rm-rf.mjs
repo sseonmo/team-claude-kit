@@ -76,15 +76,20 @@ export function check(toolName, toolInput, ctx) {
     let moved = false // 목적지는 안 본다. 옮겼다는 사실만 본다.
 
     for (const segment of splitSegments(command)) {
-      const tokens = stripCommandPrefixes(stripRedirections(tokenize(segment)))
-      const { argv, short, long } = classifyArgv(tokens)
-      const name = path.basename(argv[0] || '')
+      const base = stripRedirections(tokenize(segment))
 
-      if (DIR_CHANGERS.has(name)) {
+      // 이동 판정은 셸에 남는 것만 본다 — `nice cd` 는 셸의 위치를 바꾸지 못한다
+      const shell = classifyArgv(stripCommandPrefixes(base))
+      if (DIR_CHANGERS.has(path.basename(shell.argv[0] || ''))) {
         moved = true
         continue
       }
-      if (name !== 'rm') continue
+
+      // 삭제 판정은 실제로 실행되는 명령을 본다 — `nice rm` 의 rm 은 진짜 실행된다
+      const { argv, short, long } = classifyArgv(
+        stripCommandPrefixes(base, { execWrappers: true })
+      )
+      if (path.basename(argv[0] || '') !== 'rm') continue
 
       // 표기·순서를 흡수한 뒤의 판정은 이 두 줄이 전부다
       const recursive = short.has('r') || short.has('R') || long.has('recursive')

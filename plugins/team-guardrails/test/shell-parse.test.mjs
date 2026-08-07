@@ -223,6 +223,41 @@ test('stripCommandPrefixes: 전부 접두어면 빈 배열', () => {
   assert.deepEqual(stripCommandPrefixes([]), [])
 })
 
+// ── exec 래퍼 — 기본으로는 벗기지 않고, 명시할 때만 벗긴다 ────────────────
+// `nice cd /tmp` 는 셸의 위치를 바꾸지 못한다(`cd` 는 빌트인이라 exec 되지 않는다).
+// 그래서 이동 판정은 기본 동작을, 명령 이름 판정은 `execWrappers` 를 쓴다.
+
+test('stripCommandPrefixes: exec 래퍼는 기본으로 벗기지 않는다', () => {
+  assert.deepEqual(stripCommandPrefixes(['nice', 'cd', '/tmp']), ['nice', 'cd', '/tmp'])
+  assert.deepEqual(stripCommandPrefixes(['timeout', '60', 'cd', '/tmp']), ['timeout', '60', 'cd', '/tmp'])
+})
+
+test('stripCommandPrefixes: execWrappers 면 래퍼와 그 값을 벗긴다', () => {
+  const strip = (t) => stripCommandPrefixes(t, { execWrappers: true })
+  assert.deepEqual(strip(['nice', 'rm', '-rf', '/']), ['rm', '-rf', '/'])
+  assert.deepEqual(strip(['nice', '-n', '10', 'rm']), ['rm'])
+  assert.deepEqual(strip(['nice', '-10', 'rm']), ['rm'])
+  assert.deepEqual(strip(['timeout', '60', 'git', 'push']), ['git', 'push'])
+  assert.deepEqual(strip(['timeout', '5s', 'git']), ['git'])
+  assert.deepEqual(strip(['timeout', '--signal=KILL', '30', 'git']), ['git'])
+  // 기존 접두어와 섞여도 같이 벗겨진다
+  assert.deepEqual(strip(['sudo', 'nice', '-n', '5', 'rm']), ['rm'])
+})
+
+test('stripCommandPrefixes: execWrappers 도 첫 토큰이 아니면 벗기지 않는다', () => {
+  const strip = (t) => stripCommandPrefixes(t, { execWrappers: true })
+  assert.deepEqual(strip(['echo', 'nice', 'rm']), ['echo', 'nice', 'rm'])
+  assert.deepEqual(strip(['rm', '-rf', 'nice']), ['rm', '-rf', 'nice'])
+  assert.deepEqual(strip(['rm', '-rf', 'timeout']), ['rm', '-rf', 'timeout'])
+})
+
+test('stripCommandPrefixes: 값처럼 보이는 토큰만 건너뛴다 — 명령 이름에서 멈춘다', () => {
+  const strip = (t) => stripCommandPrefixes(t, { execWrappers: true })
+  // `10s` 는 값이지만 `rm` 은 명령이다. 여기서 멈추지 않으면 삭제 대상까지 먹는다
+  assert.deepEqual(strip(['timeout', '10s', 'rm', '-rf', 'dist']), ['rm', '-rf', 'dist'])
+  assert.deepEqual(strip(['nice']), [])
+})
+
 test('stripRedirections: 평범한 인자는 건드리지 않는다', () => {
   assert.deepEqual(stripRedirections(['rm', '-rf', 'dist', '2', 'build']), ['rm', '-rf', 'dist', '2', 'build'])
   assert.deepEqual(stripRedirections([]), [])

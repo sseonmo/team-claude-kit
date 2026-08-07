@@ -150,22 +150,45 @@ export function stripRedirections(tokens) {
 // 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
 // D1 은 sudo 를 벗기는데 D3 는 안 벗기는 식이다. 한 곳에 모아 그 자리를 없앤다.
 const COMMAND_PREFIXES = new Set([
-  // 실행 래퍼. `nice`·`timeout` 은 외부 바이너리를 exec 하므로 그 아래 `cd` 가
-  // 현재 셸에 남지 않는다 — 여기 넣지 않는다.
   'sudo', 'env', 'command', 'builtin', 'eval', 'nohup', 'time', 'exec', '!', '{',
   'if', 'elif', 'then', 'else', 'while', 'until', 'for', 'do', 'in', 'case', 'select', // 키워드
 ])
+
+// `nice`·`timeout` 은 위와 달리 **외부 바이너리를 exec** 한다. 그래서 축마다 답이 반대다:
+//   `nice rm -rf /`   — rm 은 실제로 실행된다 → 벗겨야 잡는다
+//   `nice cd /tmp`    — cd 는 빌트인이라 exec 되지 않고, 셸의 위치는 그대로다 → 벗기면 미탐
+// 한 집합에 섞으면 둘 중 하나가 반드시 틀리므로, 호출부가 축을 골라 쓰게 나눠 둔다.
+const EXEC_WRAPPERS = new Set(['nice', 'timeout'])
+
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+// 래퍼가 받는 값 — `-n 10`·`-10`·`60`·`5s`·`--signal=KILL`.
+// 값이 아닌 첫 토큰이 명령 이름이다. 여기서 멈추지 않으면 삭제 대상까지 먹는다.
+const WRAPPER_VALUE = /^(-|\d)/
 
 /**
  * 명령 이름 앞의 래퍼·키워드·변수 할당을 걷어낸다.
  *
  * **맨 앞에서만** 벗긴다. 중간부터 벗기면 `echo sudo rm -rf /` 가 삭제 명령으로 보인다 —
  * 미탐을 줄이려다 오탐을 만드는 전형적인 자리다.
+ *
+ * `opts.execWrappers` 를 켜면 `nice`·`timeout` 과 그 값도 벗긴다.
+ * 명령 이름을 묻는 자리에서만 켜고, 디렉토리 이동을 묻는 자리에서는 끈다.
  */
-export function stripCommandPrefixes(tokens) {
+export function stripCommandPrefixes(tokens, opts = {}) {
   let i = 0
-  while (i < tokens.length && (COMMAND_PREFIXES.has(tokens[i]) || ASSIGNMENT.test(tokens[i]))) i++
+  while (i < tokens.length) {
+    const t = tokens[i]
+    if (COMMAND_PREFIXES.has(t) || ASSIGNMENT.test(t)) {
+      i++
+      continue
+    }
+    if (opts.execWrappers && EXEC_WRAPPERS.has(t)) {
+      i++
+      while (i < tokens.length && WRAPPER_VALUE.test(tokens[i])) i++
+      continue
+    }
+    break
+  }
   return tokens.slice(i)
 }
 
