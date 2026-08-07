@@ -101,23 +101,34 @@ export function check(toolName, toolInput, ctx) {
     const baseByScope = new Map([[0, ctx.cwd]])
 
     let blockDepth = 0 // 조건·반복 블록 안인가 (여러 줄 스크립트에서 줄 사이로 이어진다)
+    let braceDepth = 0 // 브레이스 그룹 안인가 (함수 정의 본문일 수 있다)
 
     for (const seg of splitCommand(command)) {
       const base = baseFor(seg, baseByScope, ctx)
 
       const segTokens = stripRedirections(tokenize(seg.text))
       blockDepth = Math.max(0, blockDepth + blockDelta(segTokens))
+      // 여는 브레이스는 세그먼트 맨 앞에만 온다. 닫는 쪽은 인자로 위장할 수 있지만
+      // 0 아래로 내려가지 않으므로 해가 없다.
+      if (segTokens[0] === '{') braceDepth++
+      braceDepth = Math.max(0, braceDepth - segTokens.filter((t) => t === '}').length)
 
       const tokens = stripCommandPrefixes(segTokens)
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
-        // 조건·반복 안의 cd 는 실행 여부를 알 수 없다 — 실행된 것으로 단정하지 않는다
-        const conditional = blockDepth > 0 || startsWithShellKeyword(segTokens)
-        if (CD_ESCAPES.has(seg.sepAfter) && !conditional) {
-          baseByScope.set(seg.scopeId, nextBase(base, argv[1], ctx))
-        }
+        // 파이프·백그라운드의 cd 는 서브셸에서 돌아 밖에 남지 않는다 — 기준이 그대로다
+        if (!CD_ESCAPES.has(seg.sepAfter)) continue
+
+        // 실행 여부를 알 수 없는 두 자리. "일어나지 않았다"로 단정하면 그 뒤의 상대경로가
+        // 옛 기준으로 풀려 오탐이 된다. 모르면 모른다고 두고 판정을 접는다.
+        //   · 조건·반복 블록 안 — 실행될 수도, 안 될 수도 있다
+        //   · 브레이스 그룹 — 즉시 실행되는 그룹인지 함수 정의의 본문인지 구분되지 않는다
+        //     (여러 줄로 쓰면 본문 줄에 `{` 가 없으므로 깊이로 센다)
+        const unknown = blockDepth > 0 || braceDepth > 0 || startsWithShellKeyword(segTokens)
+
+        baseByScope.set(seg.scopeId, unknown ? null : nextBase(base, argv[1], ctx))
         continue
       }
       if (name !== 'rm') continue

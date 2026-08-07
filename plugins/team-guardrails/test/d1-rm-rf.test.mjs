@@ -243,10 +243,22 @@ test('D1: 실행 래퍼가 붙은 cd 는 기준을 바꾼다 (언제나 실행�
   denied('sudo cd /tmp; rm -rf junk')
 })
 
-test('D1: 브레이스 그룹·부정도 무조건 실행이므로 기준을 바꾼다', () => {
-  denied('{ cd /tmp; }; rm -rf junk')
-  denied('{ cd /tmp; rm -rf junk; }')
+test('D1: 부정은 애매하지 않다 — 기준을 바꾼다', () => {
   denied('! cd /tmp; rm -rf junk')
+})
+
+// `{ cd /tmp; }` 는 즉시 실행되는 그룹일 수도, 함수 정의의 본문일 수도 있다.
+// 앞 세그먼트를 봐야 구분되는데, 그 판별을 더 얹느니 모른다고 인정하는 편이 낫다.
+test('D1: 브레이스 그룹의 cd 는 판정 불능이다 — 즉시 실행인지 함수 정의인지 모른다', () => {
+  passed('{ cd /tmp; }; rm -rf junk')
+  passed('cleanup() { cd /tmp; }\nrm -rf node_modules')
+  passed('deploy() {\n  cd /opt\n}\nrm -rf dist')
+})
+
+// 건너뛴 cd 를 "일어나지 않았다"로 단정하면, 그 뒤 상대경로가 옛 기준으로 풀려 오탐이 된다.
+test('D1: 건너뛴 cd 뒤의 상대경로는 판정하지 않는다', () => {
+  passed('if [ -d packages/app ]; then\n  cd packages/app\n  rm -rf ../shared/node_modules\nfi')
+  passed('if [ -d x ]; then\n  cd sub\n  rm -rf ../other\nfi')
 })
 
 // 여러 줄로 쓰면 본문 줄에는 키워드가 없다. 세그먼트 하나만 보는 판정은 여기서 무너지고,

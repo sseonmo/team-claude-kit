@@ -108,8 +108,13 @@ sweep('조건문 · 반복문 안의 cd', [
   ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
   // 언제나 실행되는 것들은 기준을 바꾼다
   ['time cd /tmp && rm -rf junk', 'deny'],
-  ['{ cd /tmp; }; rm -rf junk', 'deny'],
   ['! cd /tmp; rm -rf junk', 'deny'],
+  // 브레이스 그룹은 즉시 실행인지 함수 정의 본문인지 알 수 없다
+  ['{ cd /tmp; }; rm -rf junk', 'leak'],
+  ['cleanup() { cd /tmp; }\nrm -rf node_modules', 'pass'],
+  ['deploy() {\n  cd /opt\n}\nrm -rf dist', 'pass'],
+  // 건너뛴 cd 뒤의 상대경로는 기준을 모른다
+  ['if [ -d packages/app ]; then\n  cd packages/app\n  rm -rf ../shared/node_modules\nfi', 'pass'],
 ])
 
 // 여러 줄로 쓰면 본문 줄에 키워드가 없다. 0.1.5 의 회귀가 이 축에서 나왔다.
