@@ -91,6 +91,25 @@ sweep('서브셸 스코프', [
   ['(cd /tmp && tar xzf a.tgz) && rm -rf dist', 'pass'],
 ])
 
+// 0.1.4 의 회귀 3건이 전부 이 두 축에서 나왔다 — 그때 이 표에 없던 축이다.
+sweep('서브셸 × 알 수 없는 기준', [
+  ['cd - && (rm -rf ../x)', 'pass'],
+  ['cd $UNKNOWN && (rm -rf ../x)', 'pass'],
+  ['cd - && rm -rf ../x', 'pass'],
+  ['cd /tmp; ( (rm -rf junk) )', 'deny'],
+  ['cd /tmp && ( ( (rm -rf junk) ) )', 'deny'],
+])
+
+sweep('조건문 · 반복문 안의 cd', [
+  ['if false; then cd /tmp; fi; rm -rf dist', 'pass'],
+  ['for d in a; do cd /tmp; done; rm -rf dist', 'pass'],
+  ['while cd /tmp; do ls; done; rm -rf dist', 'pass'],
+  // 조건부여도 삭제 자체는 본다
+  ['if [ -d dist ]; then rm -rf /; fi', 'deny'],
+  // 언제나 실행되는 래퍼는 기준을 바꾼다
+  ['time cd /tmp && rm -rf junk', 'deny'],
+])
+
 sweep('명령 앞에 붙는 것들', [
   ['sudo rm -rf /', 'deny'],
   ['{ sudo rm -rf /; }', 'deny'],

@@ -7,6 +7,7 @@ import {
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
+  startsWithShellKeyword,
 } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
@@ -199,31 +200,46 @@ test('splitCommand: 구분자 종류를 함께 돌려준다', () => {
 
 test('splitCommand: 서브셸 안은 별도 스코프다', () => {
   assert.deepEqual(
-    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.scopeId, s.parentScope]),
+    splitCommand('(cd /tmp && ls); rm -rf x').map((s) => [s.text, s.scopeId]),
     [
-      ['cd /tmp', 1, 0],
-      ['ls', 1, 0],
-      ['rm -rf x', 0, 0],
+      ['cd /tmp', 1],
+      ['ls', 1],
+      ['rm -rf x', 0],
     ]
   )
 })
 
 test('splitCommand: 형제 서브셸은 서로 다른 스코프다', () => {
   // 깊이만 보면 둘 다 1 이라 구분되지 않는다 — 이게 0.1.2 의 오탐 원인이었다
-  const segs = splitCommand('(cd sub && npm ci) && (rm -rf dist)')
-  const [a, , b] = segs
+  const [a, , b] = splitCommand('(cd sub && npm ci) && (rm -rf dist)')
   assert.equal(a.text, 'cd sub')
   assert.equal(b.text, 'rm -rf dist')
   assert.notEqual(a.scopeId, b.scopeId, '형제 서브셸이 같은 스코프로 보이면 안 된다')
-  assert.equal(a.parentScope, 0)
-  assert.equal(b.parentScope, 0)
 })
 
-test('splitCommand: 중첩 서브셸은 부모를 가리킨다', () => {
-  const inner = splitCommand('(a && (rm -rf x))').at(-1)
-  assert.equal(inner.text, 'rm -rf x')
-  assert.notEqual(inner.scopeId, 0)
-  assert.notEqual(inner.parentScope, 0)
+// 부모 한 단계만 들고 있으면, 세그먼트가 없는 중간 스코프에서 사슬이 끊긴다.
+// `cd /tmp; ( (rm -rf junk) )` 의 바깥 괄호가 자기 세그먼트를 갖지 않아 0.1.4 가 이걸 놓쳤다.
+test('splitCommand: 조상 사슬을 통째로 준다', () => {
+  const inner = splitCommand('cd /tmp; ( (rm -rf junk) )').at(-1)
+  assert.equal(inner.text, 'rm -rf junk')
+  assert.equal(inner.scopePath[0], 0, '사슬은 언제나 최상위에서 시작한다')
+  assert.equal(inner.scopePath.at(-1), inner.scopeId)
+  assert.equal(inner.scopePath.length, 3, '두 겹 서브셸이므로 0 → 바깥 → 안쪽')
+})
+
+test('splitCommand: 최상위 세그먼트의 사슬은 [0] 이다', () => {
+  assert.deepEqual(splitCommand('rm -rf x')[0].scopePath, [0])
+})
+
+test('startsWithShellKeyword: 조건부로 실행되는 자리인지 알려준다', () => {
+  assert.equal(startsWithShellKeyword(['then', 'cd', '/tmp']), true)
+  assert.equal(startsWithShellKeyword(['do', 'cd', '/tmp']), true)
+  assert.equal(startsWithShellKeyword(['while', 'cd', '/tmp']), true)
+  // 실행 래퍼는 조건이 아니다 — 언제나 실행된다
+  assert.equal(startsWithShellKeyword(['time', 'cd', '/tmp']), false)
+  assert.equal(startsWithShellKeyword(['sudo', 'cd', '/tmp']), false)
+  assert.equal(startsWithShellKeyword(['cd', '/tmp']), false)
+  assert.equal(startsWithShellKeyword([]), false)
 })
 
 test('splitCommand: 백그라운드 & 와 && 를 구분한다', () => {

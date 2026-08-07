@@ -11,6 +11,7 @@ import {
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
+  startsWithShellKeyword,
 } from '../shell-parse.mjs'
 
 export const id = 'D1'
@@ -55,6 +56,27 @@ function resolveTarget(raw, base, ctx) {
 // 실제 셸에서 파이프·백그라운드로 이어지는 명령은 서브셸에서 돌아 cd 가 밖으로 나오지 않는다.
 const CD_ESCAPES = new Set([';', '&&', '||', '(', ')', null])
 
+/**
+ * 이 세그먼트가 속한 스코프의 기준 디렉토리.
+ * 아직 등록되지 않은 스코프면 **가장 가까운 등록된 조상**에서 물려받는다.
+ *
+ * 한 단계 위만 보면 안 된다 — 세그먼트를 갖지 않는 중간 괄호에서 사슬이 끊긴다.
+ * 그리고 `null`(판정 불능)은 그대로 물려받아야 한다. 기본값으로 덮으면
+ * "모른다"가 "프로젝트 루트다"로 되살아나 정상 명령을 막는다.
+ */
+function baseFor(seg, baseByScope, ctx) {
+  for (let i = seg.scopePath.length - 1; i >= 0; i--) {
+    const id = seg.scopePath[i]
+    if (baseByScope.has(id)) {
+      const inherited = baseByScope.get(id)
+      baseByScope.set(seg.scopeId, inherited)
+      return inherited
+    }
+  }
+  baseByScope.set(seg.scopeId, ctx.cwd)
+  return ctx.cwd
+}
+
 /** 위험하면 사유 문자열을, 안전하면 null 을 돌려준다. */
 function dangerOf(resolved, ctx) {
   if (resolved === '/') return '루트 디렉토리'
@@ -78,17 +100,16 @@ export function check(toolName, toolInput, ctx) {
     const baseByScope = new Map([[0, ctx.cwd]])
 
     for (const seg of splitCommand(command)) {
-      if (!baseByScope.has(seg.scopeId)) {
-        baseByScope.set(seg.scopeId, baseByScope.get(seg.parentScope) ?? ctx.cwd)
-      }
-      const base = baseByScope.get(seg.scopeId)
+      const base = baseFor(seg, baseByScope, ctx)
 
-      const tokens = stripCommandPrefixes(stripRedirections(tokenize(seg.text)))
+      const raw = stripRedirections(tokenize(seg.text))
+      const tokens = stripCommandPrefixes(raw)
       const { argv, short, long } = classifyArgv(tokens)
       const name = path.basename(argv[0] || '')
 
       if (name === 'cd') {
-        if (CD_ESCAPES.has(seg.sepAfter)) {
+        // 조건·반복 안의 cd 는 실행 여부를 알 수 없다 — 실행된 것으로 단정하지 않는다
+        if (CD_ESCAPES.has(seg.sepAfter) && !startsWithShellKeyword(raw)) {
           baseByScope.set(seg.scopeId, nextBase(base, argv[1], ctx))
         }
         continue

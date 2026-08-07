@@ -11,10 +11,9 @@
 
 /**
  * 명령을 세그먼트로 나누되 **위치 정보를 함께** 돌려준다.
- *   depth       — 괄호 중첩 깊이
- *   scopeId     — 서브셸 **인스턴스** 식별자 (top level 은 0)
- *   parentScope — 그 서브셸을 감싼 스코프
- *   sepAfter    — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
+ *   scopeId   — 서브셸 **인스턴스** 식별자 (top level 은 0)
+ *   scopePath — 최상위부터 자기까지의 조상 사슬. 마지막이 `scopeId` 다.
+ *   sepAfter  — 이 세그먼트 뒤의 구분자 (`;` `&&` `||` `|` `&` `(` `)` 또는 끝이면 null)
  *
  * 텍스트만 돌려주면 `(cd /tmp && ls); rm -rf dist` 에서 cd 가 서브셸 안이었다는 사실이
  * 사라진다. 실제 셸에서 서브셸·파이프·백그라운드의 cd 는 밖으로 나오지 않으므로,
@@ -23,6 +22,10 @@
  * 깊이만으로는 부족하다. `(a) && (b)` 의 내용물은 둘 다 깊이 1 이라 형제 서브셸이
  * 한 덩어리로 보이고, 앞 서브셸의 cd 가 뒤 서브셸로 샌다. 그래서 인스턴스마다
  * 새 `scopeId` 를 부여한다.
+ *
+ * 부모를 한 단계만 들고 있어도 부족하다. `cd /tmp; ( (rm -rf junk) )` 의 바깥 괄호는
+ * 자기 세그먼트를 갖지 않아 소비자 쪽 맵에 등록되지 않고, 거기서 사슬이 끊긴다.
+ * 그래서 조상 전체(`scopePath`)를 준다.
  */
 export function splitCommand(command) {
   if (typeof command !== 'string') return []
@@ -38,9 +41,8 @@ export function splitCommand(command) {
     if (text) {
       segments.push({
         text,
-        depth: scopes.length - 1,
         scopeId: scopes[scopes.length - 1],
-        parentScope: scopes.length > 1 ? scopes[scopes.length - 2] : 0,
+        scopePath: [...scopes],
         sepAfter,
       })
     }
@@ -197,11 +199,28 @@ export function stripRedirections(tokens) {
 // 이 부류를 룰마다 따로 처리했더니 비대칭이 반복해서 새어나갔다 —
 // D1 은 sudo 를 벗기는데 D3 는 안 벗기고, D1 은 `{` 를 벗기는데 D3 는 안 벗기는 식이다.
 // 한 곳에 모아 그 자리를 없앤다.
-const COMMAND_PREFIXES = new Set([
-  'sudo', 'env', 'command', 'nohup', 'time', 'exec', // 실행 래퍼
-  '!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', // 셸 키워드
-])
+// 언제나 실행되는 래퍼 — 뒤의 명령이 돈다는 사실이 바뀌지 않는다
+const EXEC_WRAPPERS = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec'])
+// 조건·반복 문맥을 여는 키워드 — 뒤의 명령은 **실행되지 않을 수도** 있다
+const SHELL_KEYWORDS = new Set(['!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+const isPrefix = (t) => EXEC_WRAPPERS.has(t) || SHELL_KEYWORDS.has(t) || ASSIGNMENT.test(t)
+
+/**
+ * 이 세그먼트가 조건·반복 문맥 안에 있는가.
+ *
+ * `if ...; then cd /tmp; fi` 의 `cd` 는 실행될 수도, 안 될 수도 있다. 실행된 것으로
+ * 단정하면 그 뒤의 정상적인 프로젝트 내부 삭제가 전부 막힌다. 반대로 `time cd /tmp` 는
+ * 언제나 실행되므로 여기 해당하지 않는다.
+ */
+export function startsWithShellKeyword(tokens) {
+  for (const t of tokens) {
+    if (SHELL_KEYWORDS.has(t)) return true
+    if (!isPrefix(t)) return false
+  }
+  return false
+}
 
 /**
  * 명령 이름 앞의 래퍼·키워드·변수 할당을 걷어낸다.
@@ -211,7 +230,7 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
  */
 export function stripCommandPrefixes(tokens) {
   let i = 0
-  while (i < tokens.length && (COMMAND_PREFIXES.has(tokens[i]) || ASSIGNMENT.test(tokens[i]))) i++
+  while (i < tokens.length && isPrefix(tokens[i])) i++
   return tokens.slice(i)
 }
 

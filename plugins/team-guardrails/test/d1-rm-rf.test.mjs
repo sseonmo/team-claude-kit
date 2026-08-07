@@ -225,6 +225,40 @@ test('D1: 셸 키워드 뒤의 명령도 본다', () => {
   denied('while true; do rm -rf /; done')
 })
 
+// ─────────────────────────────────────────────────────────────
+// 조건부 cd — 키워드를 벗기면서 생긴 회귀.
+// `if ...; then cd /tmp; fi` 의 cd 는 실행될 수도, 안 될 수도 있다.
+// 실행된 것으로 단정하면 그 뒤의 정상적인 프로젝트 내부 삭제가 전부 막힌다.
+// ─────────────────────────────────────────────────────────────
+
+test('D1: 조건문·반복문 안의 cd 는 기준을 바꾸지 않는다', () => {
+  passed('if false; then cd /tmp; fi; rm -rf dist')
+  passed('if [ -d /tmp ]; then cd /tmp; fi; rm -rf dist')
+  passed('for d in a; do cd /tmp; done; rm -rf dist')
+  passed('while cd /tmp; do ls; done; rm -rf dist')
+})
+
+test('D1: 실행 래퍼가 붙은 cd 는 기준을 바꾼다 (언제나 실행되므로)', () => {
+  denied('time cd /tmp && rm -rf junk')
+  denied('sudo cd /tmp; rm -rf junk')
+})
+
+// ─────────────────────────────────────────────────────────────
+// 판정 불능은 서브셸을 건너도 판정 불능이다.
+// `??` 로 기본값을 주면 "모른다"가 "프로젝트 루트다"로 되살아나 정상 명령을 막는다.
+// ─────────────────────────────────────────────────────────────
+
+test('D1: 알 수 없는 기준은 서브셸 안에서도 되살아나지 않는다', () => {
+  passed('cd - && (rm -rf ../x)')
+  passed('cd $UNKNOWN && (rm -rf ../x)')
+  passed('cd - && rm -rf ../x')
+})
+
+test('D1: 중간 스코프가 비어도 상속이 끊기지 않는다', () => {
+  denied('cd /tmp; ( (rm -rf junk) )')
+  denied('cd /tmp && ( ( (rm -rf junk) ) )')
+})
+
 test('D1: 접두어가 인자로 등장하면 벗기지 않는다 — 오탐 방지선', () => {
   passed('echo sudo rm -rf /')
   passed('git commit -m "time rm -rf /"')
