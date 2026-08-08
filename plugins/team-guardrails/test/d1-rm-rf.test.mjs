@@ -14,6 +14,13 @@ const denied = (command) => {
   assert.equal(r.rule, 'D1')
   return r
 }
+const asked = (command) => {
+  const r = run(command)
+  assert.ok(r, `물었어야 한다: ${command}`)
+  assert.equal(r.decision, 'ask')
+  assert.equal(r.rule, 'D1')
+  return r
+}
 const passed = (command) => {
   assert.equal(run(command), null, `통과했어야 한다: ${command}`)
 }
@@ -75,6 +82,78 @@ test('D1: 명령 앞에 붙는 것들을 벗겨낸다', () => {
   denied('exec rm -rf /')
   denied('env FOO=1 rm -rf /')
   denied('DEBUG=1 rm -rf /')
+})
+
+// ─────────────────────────────────────────────────────────────
+// 모르는 래퍼 — 목록에 없으니 확신이 없다. 막지도, 통과시키지도 않고 **묻는다**.
+//
+// 0.2.1~0.2.3 이 세 릴리스에 걸쳐 알려진 래퍼 목록을 늘렸고 매번 새 래퍼가 나왔다.
+// POSIX·GNU·BSD·서드파티 래퍼는 열린 집합이라 손으로 닫을 수 없다.
+// 그래서 이름을 묻지 않고 자리를 본다 — 미지의 토큰 뒤에 파국적 대상이 보이면 ask.
+// deny 가 아닌 이유: 그 토큰이 정말 rm 을 실행하는지 문자열만 보고는 모른다.
+// pass 가 아닌 이유: 그렇다고 `ionice rm -rf /` 를 조용히 내보낼 수는 없다.
+// ─────────────────────────────────────────────────────────────
+
+test('D1: 목록에 없는 래퍼 뒤의 rm -rf 는 막지 않고 묻는다', () => {
+  asked('ionice rm -rf /')
+  asked('setsid rm -rf /')
+  asked('stdbuf -o0 rm -rf /')
+  asked('doas rm -rf /')
+  asked('chrt -f 1 rm -rf /')
+  asked('taskset -c 0 rm -rf /')
+  asked('unbuffer rm -rf /')
+})
+
+test('D1: 알려진 래퍼라도 처리하지 못한 옵션 형태면 묻는다', () => {
+  asked('env -u PATH rm -rf /')
+  asked('env -C /tmp rm -rf /')
+  asked('timeout -s KILL 30 rm -rf /')
+})
+
+test('D1: 묻는 판정도 대상 판별은 막는 판정과 같다', () => {
+  asked('ionice rm -rf ~')
+  asked('ionice rm -rf $HOME')
+  asked('ionice rm -rf /etc')
+  asked('ionice rm -rf ../other')
+  asked('ionice rm -rf .')
+  asked('ionice rm -rf dist /etc') // 인자 하나만 위험해도
+  asked('sudo ionice rm -rf /') // 알려진 접두어와 겹쳐도
+})
+
+test('D1: 모르는 래퍼라도 대상이 프로젝트 안이면 묻지 않는다', () => {
+  passed('ionice rm -rf node_modules')
+  passed('doas rm -rf dist')
+  passed('taskset -c 0 rm -rf ./build')
+  passed('unbuffer rm -rf /Users/tester/proj/tmp')
+})
+
+test('D1: 모르는 래퍼라도 재귀+강제가 아니면 대상이 아니다', () => {
+  passed('ionice rm /')
+  passed('ionice rm -f /etc/hosts')
+  passed('ionice rm -r /etc')
+})
+
+test('D1: 설명되지 않는 낱말이 둘이면 래퍼로 보지 않는다 — 오탐 방지선', () => {
+  passed('echo sudo rm -rf /')
+  passed('echo ionice rm -rf /')
+  passed('find . -name x -exec rm -rf / \\;')
+  passed('git commit -m "remove rm -rf / from docs"')
+})
+
+test('D1: 모르는 래퍼 뒤라도 디렉토리를 옮긴 뒤의 상대경로는 판정하지 않는다', () => {
+  passed('cd packages/app && ionice rm -rf ../shared')
+  passed('pushd packages/app && doas rm -rf ../shared')
+})
+
+test('D1: 묻는 사유에 무엇이 걸렸는지 들어간다', () => {
+  const r = asked('ionice rm -rf /')
+  assert.match(r.reason, /\[guardrail D1\]/)
+  assert.match(r.reason, /ionice/)
+})
+
+test('D1: 같은 명령에 막을 것과 물을 것이 섞이면 막는 쪽이 이긴다', () => {
+  denied('ionice rm -rf /; rm -rf ~')
+  denied('rm -rf ~; ionice rm -rf /')
 })
 
 test('D1: 셸 키워드 뒤의 명령도 본다 (여러 줄 포함)', () => {

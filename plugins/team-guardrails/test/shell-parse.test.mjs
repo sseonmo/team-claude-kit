@@ -6,6 +6,7 @@ import {
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
+  stripUnknownWrapper,
 } from '../lib/shell-parse.mjs'
 
 // ─────────────────────────────────────────────────────────────
@@ -256,6 +257,51 @@ test('stripCommandPrefixes: 값처럼 보이는 토큰만 건너뛴다 — 명�
   // `10s` 는 값이지만 `rm` 은 명령이다. 여기서 멈추지 않으면 삭제 대상까지 먹는다
   assert.deepEqual(strip(['timeout', '10s', 'rm', '-rf', 'dist']), ['rm', '-rf', 'dist'])
   assert.deepEqual(strip(['nice']), [])
+})
+
+// ─────────────────────────────────────────────────────────────
+// 모르는 래퍼 — 이름 목록은 닫히지 않는다.
+// 0.2.1~0.2.3 이 세 릴리스에 걸쳐 알려진 래퍼를 손으로 추가했고 매번 새 래퍼가 나왔다
+// (ionice·setsid·stdbuf·doas·chrt·taskset·unbuffer…). POSIX·GNU·BSD·서드파티 래퍼는
+// 열린 집합이라 셀 수 없다. 그래서 여기서는 **이름이 아니라 모양**을 본다.
+// ─────────────────────────────────────────────────────────────
+
+test('stripUnknownWrapper: 모르는 낱말 하나 뒤의 명령을 찾아낸다', () => {
+  assert.deepEqual(stripUnknownWrapper(['ionice', 'rm', '-rf', '/'], 'rm'), ['rm', '-rf', '/'])
+  assert.deepEqual(stripUnknownWrapper(['setsid', 'git', 'push'], 'git'), ['git', 'push'])
+})
+
+test('stripUnknownWrapper: 래퍼가 받는 플래그·값·숫자를 건너뛴다', () => {
+  const s = (t) => stripUnknownWrapper(t, 'rm')
+  assert.deepEqual(s(['stdbuf', '-o0', 'rm', '/']), ['rm', '/']) // 붙여 쓴 플래그
+  assert.deepEqual(s(['chrt', '-f', '1', 'rm', '/']), ['rm', '/']) // 플래그 + 값
+  assert.deepEqual(s(['taskset', '-c', '0', 'rm', '/']), ['rm', '/'])
+  assert.deepEqual(s(['-u', 'PATH', 'rm', '/']), ['rm', '/']) // env 를 벗긴 뒤 남은 꼴
+  assert.deepEqual(s(['KILL', '30', 'rm', '/']), ['rm', '/']) // timeout -s 를 벗긴 뒤 남은 꼴
+})
+
+test('stripUnknownWrapper: 경로로 부른 명령도 이름으로 본다', () => {
+  assert.deepEqual(stripUnknownWrapper(['ionice', '/bin/rm', '-rf', '/'], 'rm'), ['/bin/rm', '-rf', '/'])
+})
+
+// 여기가 오탐 방지선이다. `echo sudo rm -rf /` 는 래퍼 호출이 아니라 출력이다.
+// 값으로 설명되지 않는 낱말이 둘이면 그건 래퍼 모양이 아니다.
+test('stripUnknownWrapper: 설명되지 않는 낱말이 둘이면 래퍼가 아니다', () => {
+  assert.equal(stripUnknownWrapper(['echo', 'sudo', 'rm', '-rf', '/'], 'rm'), null)
+  assert.equal(stripUnknownWrapper(['echo', 'nice', 'rm'], 'rm'), null)
+  assert.equal(stripUnknownWrapper(['find', '.', '-name', 'x', '-exec', 'rm', '-rf', '/'], 'rm'), null)
+  assert.equal(stripUnknownWrapper(['echo', 'sudo', 'git', 'push'], 'git'), null)
+})
+
+test('stripUnknownWrapper: 명령이 없으면 null', () => {
+  assert.equal(stripUnknownWrapper(['ionice', 'ls'], 'rm'), null)
+  assert.equal(stripUnknownWrapper(['ionice'], 'rm'), null)
+  assert.equal(stripUnknownWrapper([], 'rm'), null)
+})
+
+test('stripUnknownWrapper: 첫 토큰이 명령 자신이면 null — 호출부의 정상 경로다', () => {
+  assert.equal(stripUnknownWrapper(['rm', '-rf', '/'], 'rm'), null)
+  assert.equal(stripUnknownWrapper(['git', 'push', '-f'], 'git'), null)
 })
 
 test('stripRedirections: 평범한 인자는 건드리지 않는다', () => {
