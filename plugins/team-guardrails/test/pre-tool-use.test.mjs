@@ -127,6 +127,34 @@ test('승격: 사유에서 되묻기 안내가 사라지고 승격 이유가 들
   assert.doesNotMatch(reason, /막지 않고 묻습니다/, 'deny 인데 안 막는다고 적으면 거짓말이다')
 })
 
+// 안내는 두 종류다 — 되묻기 안내(승격하면 거짓이 된다)와 대안 안내(승격해도 유효하다).
+// 둘을 함께 버리면 D3 는 존재 이유와 반대로 민다: force push 를 막으면서
+// --force-with-lease 를 알려주지 않게 된다.
+test('승격: D3 의 대안 안내는 승격 후에도 남는다', () => {
+  const reason = JSON.parse(invoke(bypass('ionice git push --force')).stdout).hookSpecificOutput
+    .permissionDecisionReason
+  assert.match(reason, /--force-with-lease/, '대안을 지우면 사용자를 더 위험한 쪽으로 민다')
+  assert.doesNotMatch(reason, /막지 않고 묻습니다/, '되묻기 안내는 사라져야 한다')
+})
+
+test('승격: 대안 안내가 최후수단 안내보다 먼저 온다', () => {
+  const reason = JSON.parse(invoke(bypass('ionice git push --force')).stdout).hookSpecificOutput
+    .permissionDecisionReason
+  const alt = reason.indexOf('--force-with-lease')
+  const last = reason.indexOf('터미널에서 직접 실행')
+  assert.notEqual(alt, -1, '대안이 아예 없으면 이 순서 검사는 무의미하게 통과한다')
+  assert.notEqual(last, -1)
+  assert.ok(alt < last, '안전한 대안을 최후수단 뒤에 두면 읽는 순서가 뒤집힌다')
+})
+
+// D1 에는 제시할 대안이 없다. 없는 자리에 빈 줄이 생기면 안 된다.
+test('승격: 대안이 없는 룰(D1)은 세 줄로 끝난다', () => {
+  const reason = JSON.parse(invoke(bypass('ionice rm -rf /')).stdout).hookSpecificOutput
+    .permissionDecisionReason
+  assert.equal(reason.split('\n').length, 3)
+  assert.doesNotMatch(reason, /\n\s*·\s*$/, '빈 안내 줄이 남으면 안 된다')
+})
+
 // 회귀 방지 — 승격이 다른 모드까지 삼키면 목록에 없다는 이유만으로 정상 명령을 막게 된다.
 test('승격: default 모드에서는 여전히 ask 다', () => {
   const out = JSON.parse(invoke(bash('ionice rm -rf /')).stdout)
