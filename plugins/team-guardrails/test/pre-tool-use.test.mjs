@@ -56,6 +56,29 @@ test('진입점: D3 도 같은 형식으로 나온다', () => {
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /\[guardrail D3\]/)
 })
 
+// 모르는 래퍼는 확신이 없어 묻는다. 훅 출력 스키마의 "ask" 가 그 자리다 —
+// deny 로 내보내면 목록에 없다는 이유만으로 정상 명령을 막게 된다.
+test('진입점: ask 는 permissionDecision "ask" 로 나온다', () => {
+  const r = invoke(bash('ionice rm -rf /'))
+  assert.equal(r.status, 0)
+  const out = JSON.parse(r.stdout)
+  assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse')
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /\[guardrail D1\]/)
+})
+
+test('진입점: D3 의 ask 도 같은 형식으로 나온다', () => {
+  const out = JSON.parse(invoke(bash('ionice git push --force')).stdout)
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /\[guardrail D3\]/)
+})
+
+test('진입점: 다른 룰이 막으면 ask 보다 deny 가 앞선다', () => {
+  const out = JSON.parse(invoke(bash('ionice rm -rf /; git push --force')).stdout)
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /\[guardrail D3\]/)
+})
+
 test('진입점: 통과는 아무것도 출력하지 않는다', () => {
   // "allow" 를 돌려주면 같은 자리의 다른 훅(tdd-guard 등) 판정까지 덮어쓴다
   assert.equal(invoke(bash('rm -rf node_modules')).stdout.trim(), '')

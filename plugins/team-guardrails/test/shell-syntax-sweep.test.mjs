@@ -4,8 +4,9 @@
 // 매번 그 **형태 자체가** 테스트에 없었기 때문이다. 그래서 룰별 테스트와 별개로,
 // 셸 문법을 구문 종류로 나눠 한 표에 세워 둔다. 파서를 건드리면 이 표가 먼저 깨진다.
 //
-// 기대값 세 가지:
+// 기대값 네 가지:
 //   deny — 막아야 한다
+//   ask  — 확신이 없어 사용자에게 물어야 한다 (모르는 래퍼 축)
 //   pass — 통과해야 한다 (오탐 방지선)
 //   leak — 통과가 **정상**이다. 정적 판정의 원리적 한계이며 의도된 동작이다.
 
@@ -159,7 +160,9 @@ sweep('명령 앞에 붙는 것들', [
   // 접두어가 인자로 등장하면 벗기지 않는다
   ['echo sudo rm -rf /', 'pass'],
   ['rm -rf time', 'pass'],
-  ['sudo -u root rm -rf /', 'leak'], // 값을 받는 sudo 플래그는 다루지 않는다
+  // 값을 받는 sudo 플래그는 다루지 않는다. 벗긴 뒤 `root rm -rf /` 가 남고,
+  // 그건 "모르는 래퍼" 모양이라 묻는 쪽으로 간다 (0.2.4 까지는 그냥 새어나갔다)
+  ['sudo -u root rm -rf /', 'ask'],
 ])
 
 // `nice`·`timeout` 은 외부 바이너리를 exec 한다. 그래서 축마다 답이 반대다:
@@ -181,6 +184,40 @@ sweep('exec 래퍼 — nice · timeout', [
   ['echo nice rm -rf /', 'pass'],
   ['rm -rf nice', 'pass'],
   ['rm -rf timeout', 'pass'],
-  // 벗긴 뒤 명령 이름이 다르면 판정하지 않는다
-  ['nice echo rm -rf /', 'pass'],
+  // 벗긴 뒤 `echo rm -rf /` 가 남는다. `echo` 가 출력 명령인지 또 다른 래퍼인지
+  // 문자열만 보고는 알 수 없어 묻는 쪽으로 간다 — 이 축에서 감수하는 유일한 오탐이다.
+  ['nice echo rm -rf /', 'ask'],
+])
+
+// 모르는 래퍼 — 이 플러그인이 세 릴리스를 소모한 자리다.
+//
+// 0.2.1~0.2.3 은 알려진 래퍼 목록을 손으로 늘렸고, 릴리스마다 새 래퍼가 발견됐다.
+// POSIX·GNU·BSD·서드파티 래퍼는 열린 집합이라 목록으로는 닫히지 않는다.
+// 그래서 이름을 세는 대신 **모양**을 본다 — 미지의 토큰 뒤에 파국적 대상이 오면 묻는다.
+// 목록을 늘리지 않고 닫히므로, 여기 없는 새 래퍼도 자동으로 덮인다.
+sweep('모르는 래퍼 — 이름이 아니라 모양으로 본다', [
+  ['ionice rm -rf /', 'ask'],
+  ['setsid rm -rf /', 'ask'],
+  ['stdbuf -o0 rm -rf /', 'ask'],
+  ['doas rm -rf /', 'ask'],
+  ['chrt -f 1 rm -rf /', 'ask'],
+  ['taskset -c 0 rm -rf /', 'ask'],
+  ['unbuffer rm -rf /', 'ask'],
+  ['env -u PATH rm -rf /', 'ask'],
+  ['env -C /tmp rm -rf /', 'ask'],
+  ['timeout -s KILL 30 rm -rf /', 'ask'],
+  ['ionice git push --force', 'ask'],
+  ['setsid git push -f', 'ask'],
+  ['doas git push --force', 'ask'],
+  ['env -u PATH git push --force', 'ask'],
+  // 목록에 없는 래퍼여도 대상이 안전하면 묻지 않는다 — ask 는 통과가 아니다
+  ['ionice rm -rf node_modules', 'pass'],
+  ['ionice git push origin main', 'pass'],
+  ['ionice git push --force-with-lease', 'pass'],
+  ['cd packages/app && ionice rm -rf ../shared', 'pass'],
+  // 값으로 설명되지 않는 낱말이 둘이면 래퍼 모양이 아니다
+  ['echo ionice rm -rf /', 'pass'],
+  ['find . -name x -exec rm -rf / \\;', 'pass'],
+  // 막을 것과 물을 것이 섞이면 막는 쪽이 이긴다
+  ['ionice rm -rf /; rm -rf ~', 'deny'],
 ])

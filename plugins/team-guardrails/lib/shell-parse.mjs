@@ -192,6 +192,54 @@ export function stripCommandPrefixes(tokens, opts = {}) {
   return tokens.slice(i)
 }
 
+// 래퍼가 받을 수 있는 토큰. `-n`·`--signal=KILL`·`-o0` 은 플래그, `30`·`5s` 는 값이다.
+const FLAG = /^-./
+const NUMERIC_VALUE = /^\d/
+
+/**
+ * 명령 이름 앞의 **모르는** 래퍼를 걷어낸다. 못 찾으면 null 을 돌려준다.
+ *
+ * `stripCommandPrefixes` 는 이름을 아는 래퍼만 벗긴다. 그 목록은 닫히지 않는다 —
+ * 0.2.1~0.2.3 이 세 릴리스에 걸쳐 손으로 늘렸고 매번 새 래퍼가 나왔다
+ * (ionice·setsid·stdbuf·doas·chrt·taskset·unbuffer…). POSIX·GNU·BSD·서드파티
+ * 래퍼는 열린 집합이라 셀 수 없다. 그래서 여기서는 이름이 아니라 **모양**을 본다:
+ *
+ *   래퍼 이름 낱말 하나 + 플래그 + 플래그가 받는 값 + 숫자꼴 값 → 그 다음이 명령 이름
+ *
+ * 값으로 설명되지 않는 낱말이 둘이면 래퍼 모양이 아니다. 이게 오탐 방지선이다 —
+ * `echo sudo rm -rf /` 는 래퍼 호출이 아니라 출력이고, 여기서 걸러진다.
+ *
+ * 이름을 모르니 그게 정말 실행 래퍼인지도 모른다. 그래서 호출부는 이 결과로
+ * **차단하지 않고 사용자에게 묻는다**.
+ */
+export function stripUnknownWrapper(tokens, name) {
+  let prevFlag = false
+
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    // 맨 앞의 명령 이름은 호출부의 정상 경로가 이미 처리했다
+    if (i > 0 && basename(t) === name) return tokens.slice(i)
+
+    if (FLAG.test(t)) {
+      prevFlag = true
+      continue
+    }
+    // 래퍼 이름 한 번 · 플래그가 받는 값 · 숫자꼴 값만 낱말로 허용한다
+    if (i === 0 || prevFlag || NUMERIC_VALUE.test(t)) {
+      prevFlag = false
+      continue
+    }
+    return null
+  }
+  return null
+}
+
+/** `/bin/rm` 도 `rm` 이다. path.basename 과 같지만 이 파일은 문자열만 다룬다. */
+function basename(t) {
+  const i = t.lastIndexOf('/')
+  return i === -1 ? t : t.slice(i + 1)
+}
+
 /**
  * 토큰을 플래그와 operand 로 가른다.
  *   short — 묶인 단문자를 낱개로 편 집합 (`-rf` → r, f)

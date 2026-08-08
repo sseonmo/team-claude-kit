@@ -26,6 +26,7 @@ import {
   classifyArgv,
   stripRedirections,
   stripCommandPrefixes,
+  stripUnknownWrapper,
 } from '../shell-parse.mjs'
 
 export const id = 'D1'
@@ -74,6 +75,7 @@ export function check(toolName, toolInput, ctx) {
     if (typeof command !== 'string' || command === '') return null
 
     let moved = false // 목적지는 안 본다. 옮겼다는 사실만 본다.
+    let asked = null // 확신이 없어 물을 것. 막을 것이 하나라도 나오면 그쪽이 이긴다.
 
     for (const segment of splitSegments(command)) {
       const base = stripRedirections(tokenize(segment))
@@ -86,10 +88,22 @@ export function check(toolName, toolInput, ctx) {
       }
 
       // 삭제 판정은 실제로 실행되는 명령을 본다 — `nice rm` 의 rm 은 진짜 실행된다
-      const { argv, short, long } = classifyArgv(
-        stripCommandPrefixes(base, { execWrappers: true })
-      )
-      if (path.basename(argv[0] || '') !== 'rm') continue
+      const exec = stripCommandPrefixes(base, { execWrappers: true })
+
+      // 이름을 아는 래퍼를 벗겨 rm 이 나오면 그대로 막는다.
+      // 나오지 않으면 **모르는 래퍼** 모양인지 본다 — 이름 목록은 닫히지 않으므로
+      // (0.2.1~0.2.3 이 그 방식으로 소모됐다) 그 자리는 확신 없이 판정할 수 없다.
+      // 확신이 없으니 막지도 통과시키지도 않고 묻는다.
+      let tokens = exec
+      let wrapper = null
+      if (path.basename(exec[0] || '') !== 'rm') {
+        const wrapped = stripUnknownWrapper(exec, 'rm')
+        if (!wrapped) continue
+        wrapper = exec.slice(0, exec.length - wrapped.length).join(' ')
+        tokens = wrapped
+      }
+
+      const { argv, short, long } = classifyArgv(tokens)
 
       // 표기·순서를 흡수한 뒤의 판정은 이 두 줄이 전부다
       const recursive = short.has('r') || short.has('R') || long.has('recursive')
@@ -103,6 +117,18 @@ export function check(toolName, toolInput, ctx) {
         const why = dangerOf(resolved, ctx)
         if (!why) continue
 
+        if (wrapper !== null) {
+          asked = asked || {
+            decision: 'ask',
+            rule: 'D1',
+            reason:
+              `[guardrail D1] 알 수 없는 래퍼(${wrapper}) 뒤의 rm -rf 대상이 ${why}입니다: ${resolved}\n` +
+              `  · 이 앞부분이 rm 을 실제로 실행하는지 알 수 없어, 막지 않고 묻습니다.\n` +
+              `  · 의도한 명령이면 승인하고, 아니라면 거절하십시오.`,
+          }
+          break // 이 세그먼트는 물을 것으로 정해졌다. 막을 것은 다음 세그먼트에서 찾는다.
+        }
+
         return {
           decision: 'deny',
           rule: 'D1',
@@ -113,7 +139,7 @@ export function check(toolName, toolInput, ctx) {
         }
       }
     }
-    return null
+    return asked
   } catch {
     return null // fail-open — 모르면 아무것도 하지 않는다
   }
