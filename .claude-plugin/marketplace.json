@@ -44,6 +44,15 @@
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",
       "keywords": ["guardrail", "hook", "safety", "rm-rf", "force-push", "prevent", "fail-open"]
+    },
+    {
+      "name": "team-push-gate",
+      "source": "./plugins/team-push-gate",
+      "description": "push 전에 claude 로 코드 리뷰를 돌리고 심각한 결함이면 push 를 막는 git pre-push 훅을 나른다. /push-gate-install 로 저장소마다 .git/hooks/pre-push 에 설치하며, 남의 훅은 덮지 않고 core.hooksPath 가 설정된 저장소에서는 훅이 무시된다는 것을 경고한다. fail-closed — 리뷰를 못 돌리거나 판정을 못 얻으면 막는다. 의존성 없음.",
+      "version": "0.1.0",
+      "author": { "name": "sseon", "email": "mo3509@gmail.com" },
+      "category": "workflow",
+      "keywords": ["git-hook", "pre-push", "code-review", "gate", "fail-closed"]
     }
   ]
 }
