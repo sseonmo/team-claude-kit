@@ -20,6 +20,11 @@ export const id = 'D3'
 // 'push' 가 서브커맨드 자리에 오지 않아 룰이 통째로 빗나간다.
 const GLOBAL_OPTS_WITH_VALUE = new Set(['-C', '-c'])
 
+// 이 룰이 존재하는 이유가 이 한 줄이다 — force push 를 막는 것보다 안전한 대안으로 보내는 게 목적이다.
+// deny·ask 어느 판정에서도, 진입점이 사유를 갈아끼우는 승격 경로에서도 이 줄은 살아남아야 한다.
+const ALTERNATIVE_LEASE =
+  '  · 되돌리려던 것이라면: git push --force-with-lease (원격이 예상과 다르면 실패하므로 안전합니다)'
+
 export function check(toolName, toolInput, _ctx) {
   try {
     if (toolName !== 'Bash') return null
@@ -72,10 +77,14 @@ export function check(toolName, toolInput, _ctx) {
         asked = asked || {
           decision: 'ask',
           rule: 'D3',
+          // 되묻기 안내와 달리 이 줄은 판정이 deny 로 바뀌어도 유효하다. 그래서 따로 낸다 —
+          // 진입점이 승격할 때 reason 을 갈아끼우면서 이 줄까지 버리면
+          // force push 를 막으면서 안전한 대안을 알려주지 않게 된다.
+          alternative: ALTERNATIVE_LEASE,
           reason:
             `[guardrail D3] 알 수 없는 래퍼(${wrapper}) 뒤에 force push (${matched}) 가 있습니다.\n` +
             `  · 이 앞부분이 git 을 실제로 실행하는지 알 수 없어, 막지 않고 묻습니다.\n` +
-            `  · 되돌리려던 것이라면: git push --force-with-lease (원격이 예상과 다르면 실패하므로 안전합니다)`,
+            ALTERNATIVE_LEASE,
         }
         continue // 막을 것은 다음 세그먼트에서 계속 찾는다
       }
@@ -85,7 +94,7 @@ export function check(toolName, toolInput, _ctx) {
         rule: 'D3',
         reason:
           `[guardrail D3] force push 를 막았습니다 (${matched}). 원격의 남의 커밋이 지워질 수 있습니다.\n` +
-          `  · 되돌리려던 것이라면: git push --force-with-lease (원격이 예상과 다르면 실패하므로 안전합니다)\n` +
+          `${ALTERNATIVE_LEASE}\n` +
           `  · 정말 무조건 덮어써야 한다면 터미널에서 직접 실행하십시오.`,
       }
     }

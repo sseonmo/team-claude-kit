@@ -15,6 +15,29 @@ import * as d3 from '../lib/rules/d3-force-push.mjs'
 
 const RULES = [d1, d3]
 
+// `ask` 가 사용자에게 도달하지 않는 모드. 이 모드에서 훅이 `ask` 를 내면 프롬프트 없이
+// 그대로 실행된다(2026-08-08 실측 — 같은 모드에서 `deny` 는 정상 차단된다).
+// 그래서 여기서는 `ask` 를 `deny` 로 올린다. 올리지 않으면 "모르는 래퍼는 되묻는다"가
+// 통째로 장식이 되고, 그 사실은 도구 실행 결과만 봐서는 드러나지 않는다.
+const ASK_IS_SILENT = new Set(['bypassPermissions'])
+
+// 룰의 reason 은 「첫 줄 = 무엇이 걸렸는가(사실) · 이후 `  · ` 줄 = 안내」 규약을 따른다.
+// 승격하면 되묻기 안내가 거짓이 되므로(누를 수 없는 승인 버튼을 안내하게 된다) 사실만 남기고 갈아끼운다.
+//
+// 단 안내가 한 종류가 아니다. **대안 안내**(D3 의 `--force-with-lease`)는 판정이 deny 로 바뀌어도
+// 여전히 유효한데, 통째로 버리면 그 룰이 존재하는 이유와 반대 방향으로 사용자를 민다.
+// 그래서 룰이 `alternative` 로 따로 내주고, 여기서는 그것만 도로 끼운다 —
+// reason 문자열에서 골라내려 하면 문구가 바뀔 때마다 조용히 어긋난다.
+function promoteReason(reason, alternative) {
+  const fact = String(reason).split('\n')[0]
+  return [
+    fact,
+    '  · 원래는 되묻는 사안이지만, bypassPermissions 모드에서는 되묻기가 자동 승인되어 무의미하므로 차단했습니다.',
+    ...(alternative ? [alternative] : []),
+    '  · 의도한 명령이면 터미널에서 직접 실행하십시오.',
+  ].join('\n')
+}
+
 function readStdin() {
   try {
     return fs.readFileSync(0, 'utf8')
@@ -53,12 +76,18 @@ function main() {
     results.find((r) => r.decision === 'deny') || results.find((r) => r.decision === 'ask')
   if (!verdict) return
 
+  // 모드는 위험도와 다른 축이다. 룰은 "얼마나 위험한가"만 판단하고,
+  // "그 판정이 사용자에게 닿는가"는 여기서 본다.
+  const promote = verdict.decision === 'ask' && ASK_IS_SILENT.has(input.permission_mode)
+
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        permissionDecision: verdict.decision,
-        permissionDecisionReason: verdict.reason,
+        permissionDecision: promote ? 'deny' : verdict.decision,
+        permissionDecisionReason: promote
+          ? promoteReason(verdict.reason, verdict.alternative)
+          : verdict.reason,
       },
     })
   )

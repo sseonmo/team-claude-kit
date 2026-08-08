@@ -74,6 +74,35 @@ echo sudo rm -rf /           → 통과   (값으로 설명되지 않는 낱말�
 
 이 방식은 목록을 늘리지 않고 닫히므로, **앞으로 나올 래퍼도 자동으로 덮인다.**
 
+### `bypassPermissions` 에서는 `ask` 대신 `deny` 로 올린다
+
+`ask` 는 사용자가 프롬프트를 본다는 전제 위에 있다. **`bypassPermissions` 모드에서는 그 전제가 거짓이다** —
+훅이 `ask` 를 내도 아무것도 묻지 않고 그대로 실행된다(같은 모드에서 `deny` 는 정상 차단된다).
+그러면 위 절 전체가 장식이 된다.
+
+그래서 훅 입력의 `permission_mode` 를 보고, 그 모드일 때만 `ask` 를 `deny` 로 올린다.
+프롬프트가 뜨는 모드(`default`·`acceptEdits`·`plan`)에서는 그대로 `ask` 다 —
+오탐을 막는 비용은 되묻기가 실제로 작동하지 않는 자리에서만 치른다.
+
+```
+                     default / acceptEdits / plan     bypassPermissions
+ionice rm -rf /              ask                            deny
+rm -rf /                     deny                           deny
+ionice rm -rf node_modules   통과                            통과
+```
+
+승격된 차단은 사유도 바꾼다. 원래 `ask` 사유에는 "의도한 명령이면 승인하십시오"가 들어 있는데,
+누를 버튼이 없는 자리에서 그 안내는 거짓말이 되기 때문이다.
+
+**단 대안 안내는 남긴다.** 안내는 한 종류가 아니다 — *되묻기 안내*는 승격하면 거짓이 되지만,
+*대안 안내*(D3 의 `--force-with-lease`)는 `deny` 로 바뀌어도 유효하다. 함께 버리면
+force push 를 막으면서 안전한 대안을 알려주지 않게 되어, **그 룰이 존재하는 이유와 반대로 민다.**
+그래서 룰이 `alternative` 필드로 따로 내고 진입점이 그것만 도로 끼운다 —
+reason 문자열에서 골라내려 하면 문구가 바뀔 때마다 조용히 어긋난다.
+
+**이건 실행 결과만 봐서는 드러나지 않는다.** `ask` 자동승인과 통과는 바깥에서 똑같이 보인다 —
+세션 transcript 의 `"hookName":"PreToolUse:Bash"` 레코드에 훅 stdout 이 판정째로 남으므로 거기서 확인한다.
+
 ## 지금 하지 않는 것
 
 Detect(감사 로그)와 Contain(worktree 격리)은 **설계돼 있지만 만들지 않았다.**
