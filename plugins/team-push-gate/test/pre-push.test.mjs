@@ -133,3 +133,63 @@ test('CLAUDE_BIN 이 실행 불가하면 막는다 (fail-closed)', () => {
   assert.equal(r.code, 1)
   assert.match(r.out, /CLAUDE_BIN/)
 })
+
+test('VERDICT: FAIL 이면 막는다', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+  const { bin } = makeClaude(dir, { stdout: '심각한 결함\nVERDICT: FAIL' })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 1)
+})
+
+test('VERDICT 가 여러 줄이면 마지막 것을 쓴다', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+  // 본문에서 'VERDICT: FAIL' 을 인용한 뒤 마지막에 PASS 를 내는 경우
+  const { bin } = makeClaude(dir, {
+    stdout: '예시로 VERDICT: FAIL 을 언급한다\n최종 판정\nVERDICT: PASS',
+  })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0, '마지막 VERDICT 가 PASS 이므로 통과해야 한다')
+})
+
+test('.md 만 바뀌면 리뷰를 건너뛴다 (의도된 동작)', () => {
+  const dir = makeRepo()
+  const base = sh('git rev-parse HEAD', dir).trim()
+  const head = commit(dir, { 'docs/x.md': '# 문서\n' }, 'docs only')
+  const { bin, calls } = makeClaude(dir, { stdout: 'VERDICT: FAIL' })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0)
+  assert.equal(existsSync(calls), false, 'claude 가 호출되면 안 된다')
+  assert.match(r.out, /문서\(\.md\)만 변경/)
+})
+
+test('코드와 .md 가 섞이면 건너뛰지 않는다', () => {
+  const dir = makeRepo()
+  const base = sh('git rev-parse HEAD', dir).trim()
+  const head = commit(dir, { 'docs/x.md': '# 문서\n', 'b.js': 'x\n' }, 'mixed')
+  const { bin, calls } = makeClaude(dir, { stdout: 'VERDICT: PASS' })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0)
+  assert.equal(existsSync(calls), true, 'claude 가 호출되어야 한다')
+})
+
+test('브랜치 삭제 push 는 대상이 아니다', () => {
+  const dir = makeRepo()
+  const base = sh('git rev-parse HEAD', dir).trim()
+  const { bin, calls } = makeClaude(dir, { stdout: 'VERDICT: FAIL' })
+
+  // 브랜치 삭제 때 git 은 local_sha 로 0000… 을 준다
+  const r = runHook(dir, { base, head: ZERO, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0)
+  assert.equal(existsSync(calls), false)
+})
