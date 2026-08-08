@@ -193,3 +193,17 @@ test('브랜치 삭제 push 는 대상이 아니다', () => {
   assert.equal(r.code, 0)
   assert.equal(existsSync(calls), false)
 })
+
+test('새 브랜치 push 는 최초 커밋부터의 범위를 리뷰한다', () => {
+  const dir = makeRepo()
+  const root = sh('git rev-list --max-parents=0 HEAD', dir).trim()
+  const head = commit(dir, { 'b.js': 'x\n' }, 'add b')
+  const { bin, calls } = makeClaude(dir, { stdout: 'VERDICT: PASS' })
+
+  // remote_sha 가 0000… = 원격에 없는 새 브랜치
+  const r = runHook(dir, { base: ZERO, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0)
+  assert.equal(existsSync(calls), true)
+  assert.match(r.out, new RegExp(`${root}\\.\\.${head}`), '최초 커밋부터의 범위여야 한다')
+})
