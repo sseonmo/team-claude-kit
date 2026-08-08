@@ -83,3 +83,53 @@ test('SKIP_AI_REVIEW=1 이면 리뷰 없이 통과한다', () => {
   assert.equal(r.code, 0)
   assert.equal(existsSync(calls), false, 'claude 가 호출되면 안 된다')
 })
+
+/** 코드 변경 커밋 하나를 얹고 base/head 를 돌려주는 공통 준비. */
+function prepared(dir) {
+  const base = sh('git rev-parse HEAD', dir).trim()
+  const head = commit(dir, { 'b.js': 'x\n' }, 'add b')
+  return { base, head }
+}
+
+test('VERDICT: PASS 면 통과한다', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+  const { bin } = makeClaude(dir, { stdout: '리뷰 본문\nVERDICT: PASS' })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 0)
+})
+
+test('VERDICT 줄이 없으면 막는다 (fail-closed)', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+  const { bin } = makeClaude(dir, { stdout: '리뷰는 했는데 판정을 안 적었다' })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 1)
+  assert.match(r.out, /판정할 수 없습니다/)
+})
+
+test('타임아웃(rc 124)이면 막는다 (fail-closed)', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+  // 종료코드 124 는 timeout(1) 이 시간 초과 때 내는 값이다
+  const { bin } = makeClaude(dir, { stdout: 'VERDICT: PASS', code: 124 })
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: bin } })
+
+  assert.equal(r.code, 1, 'PASS 가 찍혀 있어도 타임아웃이면 막아야 한다')
+  assert.match(r.out, /타임아웃/)
+})
+
+test('CLAUDE_BIN 이 실행 불가하면 막는다 (fail-closed)', () => {
+  const dir = makeRepo()
+  const { base, head } = prepared(dir)
+
+  const r = runHook(dir, { base, head, env: { CLAUDE_BIN: join(dir, '없는파일') } })
+
+  assert.equal(r.code, 1)
+  assert.match(r.out, /CLAUDE_BIN/)
+})

@@ -58,11 +58,24 @@ if ! printf '%s\n' "$files" | grep -qv '\.md$'; then
   exit 0
 fi
 
-# --- claude 탐색: 훅 셸의 PATH 는 빈약해서 직접 찾는다 ---
+# CLAUDE_BIN 이 지정되면 그것만 쓴다 (테스트 주입점).
+# 지정됐는데 실행할 수 없으면 조용히 탐색으로 넘어가지 않고 막는다 — fail-closed.
 CLAUDE=""
-for c in claude /opt/homebrew/bin/claude /usr/local/bin/claude "$HOME/.local/bin/claude"; do
-  if command -v "$c" >/dev/null 2>&1; then CLAUDE=$(command -v "$c"); break; fi
-done
+if [ -n "${CLAUDE_BIN:-}" ]; then
+  if [ ! -x "$CLAUDE_BIN" ]; then
+    say "❌ [pre-push] CLAUDE_BIN 이 실행 가능한 파일이 아닙니다: $CLAUDE_BIN"
+    say "   우회: SKIP_AI_REVIEW=1 git push   또는   git push --no-verify"
+    exit 1
+  fi
+  CLAUDE="$CLAUDE_BIN"
+fi
+
+# --- claude 탐색: 훅 셸의 PATH 는 빈약해서 직접 찾는다 ---
+if [ -z "$CLAUDE" ]; then
+  for c in claude /opt/homebrew/bin/claude /usr/local/bin/claude "$HOME/.local/bin/claude"; do
+    if command -v "$c" >/dev/null 2>&1; then CLAUDE=$(command -v "$c"); break; fi
+  done
+fi
 if [ -z "$CLAUDE" ]; then
   # nvm 설치는 노드 버전이 바뀌면 경로가 달라진다 — 최신 것을 쓴다
   CLAUDE=$(ls -t "$HOME"/.nvm/versions/node/*/bin/claude 2>/dev/null | head -1)
