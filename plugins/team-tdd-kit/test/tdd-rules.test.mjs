@@ -44,6 +44,29 @@ test('node: __tests__ 는 같은 폴더와 부모 폴더 모두 인정한다', (
   passed('/repo/src/lib/slugify.ts', '/repo/src/__tests__/slugify.test.ts')
 })
 
+test('node: test/·tests/ 디렉터리 관례도 인정한다 (node:test·mocha·ava)', () => {
+  passed('/repo/lib/slugify.ts', '/repo/lib/test/slugify.test.ts')
+  passed('/repo/lib/slugify.ts', '/repo/lib/tests/slugify.test.ts')
+  // 부모의 test/ — 이 저장소의 배치다: plugins/<n>/lib/x.mjs ↔ plugins/<n>/test/x.test.mjs
+  passed('/repo/pkg/lib/slugify.mjs', '/repo/pkg/test/slugify.test.mjs')
+  // 흔한 lib/foo.js ↔ test/foo.test.js 배치
+  passed('/repo/lib/slugify.js', '/repo/test/slugify.test.js')
+  // 패키지 루트의 test/ 는 플랫과 미러링 양쪽을 인정한다
+  passed('/repo/src/lib/slugify.ts', '/repo/test/slugify.test.ts')
+  passed('/repo/src/lib/slugify.ts', '/repo/tests/lib/slugify.test.ts')
+})
+
+test('node: 이 저장소 자신의 배치가 통과해야 한다 (0.3.0 이 잠갔던 지점)', () => {
+  passed(
+    '/repo/plugins/team-tdd-kit/lib/tdd-rules.mjs',
+    '/repo/plugins/team-tdd-kit/test/tdd-rules.test.mjs'
+  )
+  passed(
+    '/repo/plugins/team-guardrails/lib/rules/d1-rm-rf.mjs',
+    '/repo/plugins/team-guardrails/lib/test/d1-rm-rf.test.mjs'
+  )
+})
+
 test('node: __tests__ 안의 .spec 도 인정한다 (0.1.0 은 .test 만 봤다)', () => {
   passed('/repo/lib/parser.ts', '/repo/lib/__tests__/parser.spec.ts')
   passed('/repo/src/lib/parser.ts', '/repo/src/__tests__/parser.spec.ts')
@@ -54,6 +77,13 @@ test('node: 이름만 같은 남의 테스트로는 뚫리지 않는다', () => 
   // lib/a/util.ts 와 lib/b/util.ts 가 테스트 하나로 둘 다 통과했다.
   denied('/repo/lib/a/util.ts', '/repo/src/__tests__/util.test.ts')
   denied('/repo/lib/b/util.ts', '/repo/lib/a/util.test.ts')
+})
+
+test('한계: 패키지 루트의 플랫 test/ 는 동명 모듈을 구분하지 못한다', () => {
+  // mocha·node:test 의 지배적 배치를 인정한 대가다. 인정하지 않으면 그 레이아웃의
+  // 저장소가 통째로 잠긴다. 범위는 패키지 안으로 제한되고, README 에 한계로 적어 둔다.
+  passed('/repo/lib/a/util.ts', '/repo/test/util.test.ts')
+  passed('/repo/lib/b/util.ts', '/repo/test/util.test.ts')
 })
 
 // ─────────────────────────────────────────────────────────────

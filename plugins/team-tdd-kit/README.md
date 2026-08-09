@@ -38,8 +38,8 @@
 
 | 언어 | 대상 확장자 | 인정하는 테스트 위치 |
 |---|---|---|
-| Node | `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs` | 같은 폴더 `<name>.test.*` / `<name>.spec.*`<br>`__tests__/` — 같은 폴더 또는 부모 폴더 (`.test.` `.spec.` 둘 다) |
-| Python | `.py` | 같은 폴더 `test_<name>.py` / `<name>_test.py`<br>같은·부모 폴더의 `tests/`<br>루트 `tests/` — 플랫(`tests/test_x.py`)과 미러링(`tests/services/test_x.py`) 모두 |
+| Node | `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs` | 같은 폴더 `<name>.test.*` / `<name>.spec.*`<br>같은 폴더·부모 폴더의 `__tests__/` `test/` `tests/`<br>패키지 루트의 `test/` `tests/` `__tests__/` — 플랫과 미러링 모두 |
+| Python | `.py` | 같은 폴더 `test_<name>.py` / `<name>_test.py`<br>같은·부모 폴더의 `tests/`<br>패키지 루트의 `tests/` `test/` — 플랫(`tests/test_x.py`)과 미러링(`tests/services/test_x.py`) 모두 |
 | Java | `.java` | `src/main/java/<pkg>/` ↔ `src/test/java/<pkg>/` 미러링, `<Name>Test.java` / `<Name>Tests.java`<br>`src/main` 구조가 아니면 같은 폴더로 폴백 |
 
 **그 외 언어(Go·Rust·Ruby 등)는 검사하지 않는다.** 통과는 "검사했고 문제없음"이 아니라
@@ -72,8 +72,10 @@
 이 훅은 **실수 방지용**이다. 우회하려는 사람을 막지 못한다.
 
 - **테스트 파일은 존재 여부만 본다.** 내용을 검사하지 않으므로 빈 파일 하나로 게이트가 열린다.
-- **Python 루트 `tests/` 플랫 배치**는 모듈명만 같으면 다른 패키지의 테스트로도 통과된다.
-  pytest 의 지배적 관례를 존중한 대가다. 미러링(`tests/<pkg>/test_x.py`)을 쓰면 정확히 대응된다.
+- **패키지 루트의 플랫 `test/`·`tests/` 는 동명 모듈을 구분하지 못한다.** `lib/a/util.ts` 와
+  `lib/b/util.ts` 가 `test/util.test.ts` 하나로 둘 다 통과한다. pytest·mocha·node:test 의
+  지배적 배치를 인정한 대가이고, 인정하지 않으면 그 레이아웃의 저장소가 통째로 잠긴다.
+  범위는 패키지 안으로 제한된다 — 미러링(`test/<하위경로>/util.test.ts`)을 쓰면 정확히 대응된다.
 - **`Bash` 는 거치지 않는다.** `cat > lib/x.ts` 로 만든 파일은 훅을 타지 않는다.
 - **끄는 스위치가 없다.** 기존 파일 수정까지 막으므로 마찰이 실재한다 —
   급할 때는 터미널에서 직접 편집하거나 `/plugin` 으로 플러그인을 끄는 수밖에 없다.
@@ -93,6 +95,12 @@ cd plugins/team-tdd-kit && npm test
 ## 출처
 
 hook 원본(bash, TS/JS 전용): <https://github.com/jha0313/demo-project/blob/main/.claude/hooks/tdd-guard.sh>
+
+**0.3.1** — Node 후보에 `test/`·`tests/` 디렉터리 관례와 패키지 루트 앵커를 추가했다.
+`__tests__/`(jest·vitest)만 인정한 탓에 node:test·mocha·ava 레이아웃의 저장소는
+테스트가 멀쩡히 있는데도 모든 소스가 잠겼다 — 이 저장소가 정확히 그 경우였다.
+모노레포에서 저장소 루트가 아니라 **패키지 루트**(`package.json` 이 있는 가장 가까운 조상)를
+기준 삼는다. 진입점(`hooks/tdd-guard.mjs`) 테스트도 함께 붙였다.
 
 **0.3.0** — 기존 파일 수정도 차단 대상에 넣었다. 0.2.0 은 신규 파일만 막았는데,
 그러면 기존 파일에 테스트 없이 기능을 덧붙이는 경로가 통째로 열린다. 강제 범위가

@@ -1,4 +1,9 @@
-// TDD Guard 판정 — Java · Python · Node 세 언어.
+// TDD Guard — PreToolUse[Edit|Write]
+//
+// 구현 코드를 작성하거나 수정하려 할 때, 해당 모듈의 테스트 파일이 **먼저** 존재하는지 확인한다.
+// 테스트 없이 구현 코드에 손대려 하면 차단한다.
+//
+// 판정 로직 — Java · Python · Node 세 언어.
 //
 // 두 가지를 지킨다:
 //   1. **신규·기존을 가리지 않는다.** 테스트가 없으면 새 파일을 만들 때도, 있는 파일을
@@ -95,7 +100,10 @@ function isExempt(filePath) {
 
 // 인정할 테스트 파일의 후보 경로. 언어마다 관례가 갈리는 축이 두 개다 —
 // 구분자(`.` vs `_` vs CamelCase)와 배치(같은 폴더 vs 미러링된 별도 트리).
-function testCandidates(filePath, projectRoot) {
+//
+// `root` 는 이 파일이 속한 **패키지 루트**다(없으면 프로젝트 루트). 모노레포에서
+// 저장소 루트를 기준 삼으면 패키지 안에 모여 있는 테스트를 못 찾는다.
+function testCandidates(filePath, root) {
   const dir = path.dirname(filePath)
   const parent = path.dirname(dir)
   const ext = path.extname(filePath)
@@ -103,19 +111,35 @@ function testCandidates(filePath, projectRoot) {
 
   switch (languageOf(filePath)) {
     case 'node': {
-      const out = []
+      // 테스트를 모아 두는 디렉터리 관례가 러너마다 다르다 — `__tests__/` 는 jest·vitest,
+      // `test/`·`tests/` 는 node:test·mocha·ava 쪽이다. 후자를 빼면 그 레이아웃을 쓰는
+      // 저장소는 테스트가 멀쩡히 있는데도 모든 소스가 잠긴다(이 저장소가 정확히 그 경우였다).
+      //
+      // 같은 폴더 → 부모 → 패키지 루트 순으로 넓힌다.
+      const dirs = [dir]
+      for (const anchor of [dir, parent]) {
+        for (const d of ['__tests__', 'test', 'tests']) dirs.push(`${anchor}/${d}`)
+      }
+      // 패키지 루트의 test/ 는 플랫도 인정한다 — 이 저장소처럼 `lib/rules/x.mjs` 의
+      // 테스트를 `test/x.test.mjs` 에 평평하게 모으는 배치가 흔하다.
+      // 저장소 루트가 아니라 **패키지 루트**라서, 이름만 같은 테스트로 뚫리는 범위가
+      // 그 패키지 안으로 제한된다.
+      if (root) {
+        const mirrored = mirrorUnderRoot(dir, root)
+        for (const d of ['test', 'tests', '__tests__']) {
+          dirs.push(`${root}/${d}`)
+          if (mirrored) dirs.push(`${root}/${d}/${mirrored}`)
+        }
+      }
+
       // 대상 파일과 같은 확장자를 먼저 본다. 첫 후보가 곧 거부 메시지의 안내 예시라,
       // 순서를 고정하면 `.js` 파일에 `.test.ts` 를 만들라고 안내하게 된다 —
       // 러너가 잡지 못하는 테스트 파일이 생기고, 그 존재만으로 게이트가 영구히 열린다.
       const own = ext.slice(1)
+      const out = []
       for (const e of [own, ...NODE_EXTS.filter((x) => x !== own)]) {
         for (const kind of ['test', 'spec']) {
-          out.push(`${dir}/${name}.${kind}.${e}`)
-          out.push(`${dir}/__tests__/${name}.${kind}.${e}`)
-          // 부모의 __tests__ — `src/lib/foo.ts` 의 테스트를 `src/__tests__/foo.test.ts` 에
-          // 두는 배치가 여기서 커버된다. 0.1.0 처럼 저장소 루트에서 basename 만으로
-          // 찾지 않으므로, 이름만 같은 남의 테스트로는 뚫리지 않는다.
-          out.push(`${parent}/__tests__/${name}.${kind}.${e}`)
+          for (const d of dirs) out.push(`${d}/${name}.${kind}.${e}`)
         }
       }
       return out
@@ -128,13 +152,17 @@ function testCandidates(filePath, projectRoot) {
         out.push(`${dir}/${n}`)
         out.push(`${dir}/tests/${n}`)
         out.push(`${parent}/tests/${n}`)
-        if (projectRoot) {
+        if (root) {
           // 루트 tests/ 는 pytest 에서 가장 흔한 배치다. 미러링(tests/services/test_x.py)과
           // 플랫(tests/test_x.py) 을 모두 인정한다 — 플랫 쪽은 모듈명이 같으면
-          // 다른 패키지의 테스트로도 통과된다. 관례를 존중한 대가이고, README 에 적어 둔다.
-          out.push(`${projectRoot}/tests/${n}`)
-          const mirrored = mirrorUnderRoot(dir, projectRoot)
-          if (mirrored) out.push(`${projectRoot}/tests/${mirrored}/${n}`)
+          // 같은 패키지 안 다른 모듈의 테스트로도 통과된다. 관례를 존중한 대가이고, README 에 적어 둔다.
+          out.push(`${root}/tests/${n}`)
+          out.push(`${root}/test/${n}`)
+          const mirrored = mirrorUnderRoot(dir, root)
+          if (mirrored) {
+            out.push(`${root}/tests/${mirrored}/${n}`)
+            out.push(`${root}/test/${mirrored}/${n}`)
+          }
         }
       }
       return out
@@ -154,14 +182,28 @@ function testCandidates(filePath, projectRoot) {
   }
 }
 
-// 프로젝트 루트 기준 상대 디렉터리에서 선행 `src/` 를 뗀다.
+// 루트 기준 상대 디렉터리에서 선행 `src/` 를 뗀다.
 // `<root>/src/services` → `services` (→ `<root>/tests/services/test_x.py`)
-function mirrorUnderRoot(dir, projectRoot) {
-  const rel = path.relative(projectRoot, dir)
+function mirrorUnderRoot(dir, root) {
+  const rel = path.relative(root, dir)
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
   const segs = rel.split('/').filter(Boolean)
   if (segs[0] === 'src') segs.shift()
   return segs.join('/')
+}
+
+// 이 파일이 속한 패키지의 루트 — `package.json` 이 있는 가장 가까운 조상.
+// 모노레포에서 저장소 루트를 기준 삼으면 `plugins/<n>/test/` 처럼 패키지 안에
+// 모여 있는 테스트를 못 찾는다. 프로젝트 루트 위로는 올라가지 않는다.
+function nearestPackageRoot(dir, ctx) {
+  const stop = ctx.projectRoot
+  let cur = dir
+  for (;;) {
+    if (ctx.exists(`${cur}/package.json`)) return cur
+    const up = path.dirname(cur)
+    if (up === cur || (stop && cur === stop)) return null
+    cur = up
+  }
 }
 
 /**
@@ -180,7 +222,8 @@ export function check(rawPath, ctx) {
   if (!languageOf(filePath)) return null
   if (isTestFile(filePath) || isExempt(filePath)) return null
 
-  const candidates = testCandidates(filePath, ctx.projectRoot)
+  const root = nearestPackageRoot(path.dirname(filePath), ctx) || ctx.projectRoot
+  const candidates = testCandidates(filePath, root)
   if (candidates.some((c) => ctx.exists(c))) return null
 
   const base = path.basename(filePath)

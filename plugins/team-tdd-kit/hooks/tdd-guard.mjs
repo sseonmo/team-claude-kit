@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// TDD Guard — 테스트 없이 구현 코드를 작성·수정하려 하면 차단한다.
+//
 // PreToolUse 진입점 — stdin 파싱, 판정 호출, 출력. 판정 로직은 여기 두지 않는다.
 //
 // 판정은 오직 JSON `permissionDecision` 으로 전달한다. 종료 코드로 차단하지 않는다.
