@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tdd-guard.sh\"",
-            "timeout": 10,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/tdd-guard.mjs\"",
+            "timeout": 5,
             "statusMessage": "TDD Guard 검사 중..."
           }
         ]
