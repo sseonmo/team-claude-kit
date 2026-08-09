@@ -49,7 +49,7 @@
 
 | 언어 | 패턴 |
 |---|---|
-| Node | `*.test.*` `*.spec.*` `__tests__/` 하위 |
+| Node | `*.test.*` `*.spec.*` `__tests__/`·`test/`·`tests/` 하위 |
 | Python | `test_*.py` `*_test.py` `conftest.py` `tests/`·`test/` 하위 |
 | Java | `*Test.java` `*Tests.java` `*TestCase.java` `src/test/` 하위 |
 
@@ -95,6 +95,12 @@ cd plugins/team-tdd-kit && npm test
 ## 출처
 
 hook 원본(bash, TS/JS 전용): <https://github.com/jha0313/demo-project/blob/main/.claude/hooks/tdd-guard.sh>
+
+**0.3.2** — 테스트 디렉터리 목록을 후보 탐색과 "테스트 파일인가" 판정이 함께 쓰도록 합쳤다.
+0.3.1 은 `test/` 를 테스트 위치로 인정하면서 그 안의 헬퍼·픽스처는 차단했고, 안내는
+헬퍼의 테스트를 쓰라고 했다. 패키지 루트 탐색이 훅 입력의 cwd 에서 멈추던 것도 고쳤다 —
+cwd 는 사용자가 어디서 claude 를 띄웠는지일 뿐이라 패키지 루트보다 깊을 수 있고,
+거기서 끊으면 테스트가 멀쩡히 있는 파일이 차단됐다.
 
 **0.3.1** — Node 후보에 `test/`·`tests/` 디렉터리 관례와 패키지 루트 앵커를 추가했다.
 `__tests__/`(jest·vitest)만 인정한 탓에 node:test·mocha·ava 레이아웃의 저장소는

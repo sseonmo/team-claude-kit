@@ -57,13 +57,49 @@ test('node: test/·tests/ 디렉터리 관례도 인정한다 (node:test·mocha�
 })
 
 test('node: 이 저장소 자신의 배치가 통과해야 한다 (0.3.0 이 잠갔던 지점)', () => {
+  // package.json 을 함께 둔다 — 이것이 있어야 패키지 루트 앵커가 실제로 동작한다.
+  // 넣지 않으면 projectRoot 폴백으로도 초록이 나와, 앵커가 깨져도 테스트가 잡지 못한다.
   passed(
     '/repo/plugins/team-tdd-kit/lib/tdd-rules.mjs',
+    '/repo/plugins/team-tdd-kit/package.json',
     '/repo/plugins/team-tdd-kit/test/tdd-rules.test.mjs'
   )
   passed(
     '/repo/plugins/team-guardrails/lib/rules/d1-rm-rf.mjs',
-    '/repo/plugins/team-guardrails/lib/test/d1-rm-rf.test.mjs'
+    '/repo/plugins/team-guardrails/package.json',
+    '/repo/plugins/team-guardrails/test/d1-rm-rf.test.mjs'
+  )
+})
+
+test('node: 패키지 루트는 저장소 루트가 아니라 package.json 이 정한다', () => {
+  // package.json 이 없으면 그 디렉터리는 패키지 루트가 아니다 → 저장소 루트로 폴백하고,
+  // 패키지 안에 모인 테스트에는 닿지 못한다.
+  denied(
+    '/repo/plugins/team-guardrails/lib/rules/d1-rm-rf.mjs',
+    '/repo/plugins/team-guardrails/test/d1-rm-rf.test.mjs'
+  )
+  // 이웃 패키지의 테스트로는 뚫리지 않는다
+  denied(
+    '/repo/plugins/team-guardrails/lib/rules/d1-rm-rf.mjs',
+    '/repo/plugins/team-guardrails/package.json',
+    '/repo/plugins/team-tdd-kit/test/d1-rm-rf.test.mjs'
+  )
+})
+
+test('node: cwd 가 패키지 루트보다 깊어도 앵커는 파일 위치가 정한다', () => {
+  // `cd plugins/team-guardrails/lib && claude` 상태. cwd 에서 탐색을 끊으면
+  // 테스트가 멀쩡히 있는 파일이 차단된다(0.3.1 의 오탐).
+  const files = [
+    '/repo/plugins/team-guardrails/package.json',
+    '/repo/plugins/team-guardrails/test/d1-rm-rf.test.mjs',
+  ]
+  assert.equal(
+    check('/repo/plugins/team-guardrails/lib/rules/d1-rm-rf.mjs', {
+      exists: (p) => files.includes(p),
+      projectRoot: '/repo/plugins/team-guardrails/lib',
+    }),
+    null,
+    '깊은 cwd 에서도 통과해야 한다'
   )
 })
 
@@ -161,6 +197,11 @@ test('테스트 파일을 쓰려는 시도는 막지 않는다 (3언어 관용 �
   passed('/repo/tests/test_payment.py')
   passed('/repo/src/services/payment_test.py')
   passed('/repo/tests/conftest.py')
+  // test/·tests/ 안의 헬퍼·픽스처. 그 디렉터리를 테스트 위치로 인정하면서
+  // 안의 파일은 막으면, 헬퍼의 테스트를 쓰라는 안내가 나간다(0.3.1 의 결함).
+  passed('/repo/plugins/team-guardrails/test/fixtures.mjs')
+  passed('/repo/test/helpers/build-fixture.ts')
+  passed('/repo/tests/support/factory.py')
   passed('/repo/src/test/java/com/acme/PaymentServiceTest.java')
   passed('/repo/src/test/java/com/acme/PaymentServiceTests.java')
   passed('/repo/src/test/java/com/acme/Helper.java')

@@ -20,6 +20,11 @@ import path from 'node:path'
 
 const NODE_EXTS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']
 
+// 테스트를 모아 두는 디렉터리. 후보 탐색과 "이건 테스트 파일이다" 판정이 **같은 목록**을
+// 봐야 한다. 한쪽만 넓히면 `test/` 를 테스트 위치로 인정하면서 그 안의 헬퍼·픽스처는
+// 차단하게 되고, 안내는 헬퍼의 테스트를 쓰라고 한다.
+const TEST_DIRS = new Set(['__tests__', 'test', 'tests'])
+
 // Next.js 라우팅 파일. **`app/` 또는 `pages/` 안에 있을 때만** 예외다 —
 // 이름만 보면 `lib/page.ts`(페이지네이션 헬퍼) · `lib/error.js`(에러 팩토리) 처럼
 // Next.js 와 무관한 평범한 모듈이 통째로 빠져나간다.
@@ -54,14 +59,13 @@ function isTestFile(filePath) {
 
   switch (languageOf(filePath)) {
     case 'node':
-      return /\.(test|spec)\./.test(base) || segs.includes('__tests__')
+      return /\.(test|spec)\./.test(base) || segs.some((s) => TEST_DIRS.has(s))
     case 'python':
       return (
         base.startsWith('test_') ||
         /_test\.py$/.test(base) ||
         base === 'conftest.py' ||
-        segs.includes('tests') ||
-        segs.includes('test')
+        segs.some((s) => TEST_DIRS.has(s))
       )
     case 'java':
       return /(Test|Tests|TestCase)\.java$/.test(base) || isUnderJavaTestRoot(filePath)
@@ -194,14 +198,17 @@ function mirrorUnderRoot(dir, root) {
 
 // 이 파일이 속한 패키지의 루트 — `package.json` 이 있는 가장 가까운 조상.
 // 모노레포에서 저장소 루트를 기준 삼으면 `plugins/<n>/test/` 처럼 패키지 안에
-// 모여 있는 테스트를 못 찾는다. 프로젝트 루트 위로는 올라가지 않는다.
+// 모여 있는 테스트를 못 찾는다.
+//
+// 훅 입력의 cwd 에서 멈추지 않는다. cwd 는 사용자가 어디서 claude 를 띄웠는지일 뿐이라
+// 패키지 루트보다 깊을 수 있고, 거기서 끊으면 테스트가 멀쩡히 있는 파일이 차단된다.
+// 패키지 경계는 파일의 위치가 정하지, 셸의 위치가 정하지 않는다.
 function nearestPackageRoot(dir, ctx) {
-  const stop = ctx.projectRoot
   let cur = dir
   for (;;) {
     if (ctx.exists(`${cur}/package.json`)) return cur
     const up = path.dirname(cur)
-    if (up === cur || (stop && cur === stop)) return null
+    if (up === cur) return null
     cur = up
   }
 }
