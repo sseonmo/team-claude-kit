@@ -8,6 +8,7 @@
 | **team-repo-audit** | 레포 AI-readiness 감사 — `ai-readiness-cartography` 스킬 |
 | **team-tdd-kit** | 테스트 없는 구현 코드 작성 차단 — `PreToolUse[Edit\|Write]` hook |
 | **team-guardrails** | 되돌릴 수 없는 위험 명령 차단 — `PreToolUse[Bash]` hook (프로젝트 밖 `rm -rf` · force push) |
+| **team-push-gate** | push 전 AI 코드 리뷰 게이트 — `/push-gate-install` 로 `.git/hooks/pre-push` 설치 |
 
 ## 설치
 
@@ -19,6 +20,7 @@
 /plugin install team-repo-audit@team-kit
 /plugin install team-tdd-kit@team-kit
 /plugin install team-guardrails@team-kit
+/plugin install team-push-gate@team-kit
 ```
 
 private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub 접근 권한과
@@ -41,7 +43,8 @@ private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub �
     "team-wiki-kit@team-kit": true,
     "team-repo-audit@team-kit": true,
     "team-tdd-kit@team-kit": true,
-    "team-guardrails@team-kit": true
+    "team-guardrails@team-kit": true,
+    "team-push-gate@team-kit": true
   }
 }
 ```
@@ -110,6 +113,36 @@ echo "rm -rf /"       → 통과   (정규식 훅이 막던 오탐)
 **대상 경로를 보고 판정하므로** `rm -rf` 를 무조건 막는 방식과 달리 정상적인 빌드 정리를
 방해하지 않는다. 변수 치환·스크립트 경유 같은 우회는 **의도적으로 통과시킨다** —
 실수를 막는 장치이지 악의를 막는 장치가 아니다. 자세한 것은 플러그인 README 참조.
+
+### team-push-gate
+
+설치해도 바로 걸리지 않는다. **저장소마다 한 번씩** 실행해야 한다.
+
+```
+/push-gate-install
+```
+
+`.git/hooks/pre-push` 에 훅을 복사한다. 남의 훅이 이미 있으면 덮지 않고 멈추고,
+우리가 설치한 것이라도 내용이 다르면 diff 를 보여주고 확인을 받는다.
+
+```
+git push            → 리뷰가 돈다 (최대 350초)
+SKIP_AI_REVIEW=1 git push   → 건너뛴다
+git push --no-verify        → 건너뛴다
+```
+
+**fail-closed 다.** claude 를 못 찾음 · 실행 실패 · 타임아웃 · `VERDICT` 줄 없음 → 전부 차단.
+`.md` 만 바뀐 push 는 리뷰를 건너뛴다(의도된 동작).
+`core.hooksPath` 를 쓰는 저장소(husky·lefthook 등)에서는 걸리지 않으며, 설치할 때 그 사실을 경고한다.
+
+## 참고 문서
+
+| 문서 | 내용 |
+|---|---|
+| `docs/pr-review-architecture.html` | **PR 자동 리뷰**(GitHub Actions + `gpt-5` 5축 채점 → `risk:*` 라벨 → 조건부 자동 머지)의 구조·채점 기준 전문·점수 계산 예시·**다른 저장소 이식 절차**. 브라우저로 연다 |
+
+위 문서가 다루는 것은 플러그인이 아니라 `yt-thumbnail-maker` 저장소의 `scripts/pr-review/` 구현이다.
+같은 것을 플러그인으로 옮길지 검토하는 중이라 참고용으로 함께 둔다.
 
 ## 릴리스
 
