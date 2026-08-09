@@ -5,7 +5,8 @@ import { check } from '../lib/tdd-rules.mjs'
 const ROOT = '/repo'
 
 // 디스크 대신 파일 집합을 주입한다. 대상 파일 자체를 넣으면 "기존 파일 수정",
-// 넣지 않으면 "신규 작성" 이 된다 — 이 구분이 0.2.0 판정의 축이다.
+// 넣지 않으면 "신규 작성" 이다. 0.3.0 부터 둘은 같은 판정을 받는다 — 갈리는 것은
+// 테스트 파일의 존재 여부뿐이다.
 const world =
   (...files) =>
   (target) =>
@@ -136,13 +137,27 @@ test('테스트 파일을 쓰려는 시도는 막지 않는다 (3언어 관용 �
 })
 
 // ─────────────────────────────────────────────────────────────
-// 신규만 차단 — 기존 파일 수정은 통과
+// 신규·기존을 가리지 않는다 — 갈리는 것은 테스트의 존재 여부뿐
 // ─────────────────────────────────────────────────────────────
 
-test('이미 있는 파일의 수정은 테스트가 없어도 통과한다', () => {
-  passed('/repo/lib/legacy.ts', '/repo/lib/legacy.ts')
-  passed('/repo/src/services/legacy.py', '/repo/src/services/legacy.py')
-  passed('/repo/src/main/java/com/acme/Legacy.java', '/repo/src/main/java/com/acme/Legacy.java')
+test('테스트가 없으면 이미 있는 파일의 수정도 막는다', () => {
+  denied('/repo/lib/legacy.ts', '/repo/lib/legacy.ts')
+  denied('/repo/src/services/legacy.py', '/repo/src/services/legacy.py')
+  denied('/repo/src/main/java/com/acme/Legacy.java', '/repo/src/main/java/com/acme/Legacy.java')
+})
+
+test('테스트가 있으면 기존 파일 수정은 통과한다', () => {
+  passed('/repo/lib/legacy.ts', '/repo/lib/legacy.ts', '/repo/lib/legacy.test.ts')
+  passed(
+    '/repo/src/services/legacy.py',
+    '/repo/src/services/legacy.py',
+    '/repo/tests/test_legacy.py'
+  )
+  passed(
+    '/repo/src/main/java/com/acme/Legacy.java',
+    '/repo/src/main/java/com/acme/Legacy.java',
+    '/repo/src/test/java/com/acme/LegacyTest.java'
+  )
 })
 
 // ─────────────────────────────────────────────────────────────

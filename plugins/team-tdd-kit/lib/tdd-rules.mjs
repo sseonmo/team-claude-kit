@@ -1,9 +1,10 @@
 // TDD Guard 판정 — Java · Python · Node 세 언어.
 //
 // 두 가지를 지킨다:
-//   1. **신규 파일만 막는다.** 대상 파일이 이미 디스크에 있으면 통과시킨다.
-//      테스트 없는 레거시가 잔뜩 있는 저장소에서 기존 파일 한 줄 수정까지 막으면,
-//      사용자가 다음에 하는 일은 훅을 끄는 것이다. 꺼진 훅은 없는 훅과 같다.
+//   1. **신규·기존을 가리지 않는다.** 테스트가 없으면 새 파일을 만들 때도, 있는 파일을
+//      고칠 때도 막는다. 신규만 막으면 *기존 파일에 테스트 없이 기능을 덧붙이는 것*이
+//      그대로 통과하는데, 실제 코드가 자라는 곳이 대개 거기다.
+//      대가로 테스트 없는 레거시는 테스트를 먼저 쓰기 전까지 손댈 수 없다 — 의도된 마찰이다.
 //   2. **모르는 언어는 통과시킨다.** Go·Rust 등은 검사 대상이 아니며, 그건
 //      "검사했고 문제없음"이 아니라 "검사하지 않음"이다. README 에 지원 범위를 밝혀 둔다.
 //
@@ -164,7 +165,7 @@ function mirrorUnderRoot(dir, projectRoot) {
 }
 
 /**
- * @param {string} filePath  수정하려는 파일의 절대 경로
+ * @param {string} rawPath  만들거나 고치려는 파일의 절대 경로
  * @param {{exists: (p: string) => boolean, projectRoot?: string}} ctx
  * @returns {null | {decision: 'deny', reason: string}}
  *   null 은 통과. 지원하지 않는 언어도 null 이다 — "검사했고 문제없음"과 구분되지 않는다.
@@ -179,9 +180,6 @@ export function check(rawPath, ctx) {
   if (!languageOf(filePath)) return null
   if (isTestFile(filePath) || isExempt(filePath)) return null
 
-  // 이미 있는 파일의 수정은 통과. 여기가 신규 강제와 레거시 진입의 경계다.
-  if (ctx.exists(filePath)) return null
-
   const candidates = testCandidates(filePath, ctx.projectRoot)
   if (candidates.some((c) => ctx.exists(c))) return null
 
@@ -190,9 +188,9 @@ export function check(rawPath, ctx) {
   return {
     decision: 'deny',
     reason: [
-      `TDD GUARD: ${base} 를 새로 만들려 하지만 이 모듈의 테스트 파일이 없습니다.`,
+      `TDD GUARD: ${base} 에 대한 테스트 파일이 없습니다.`,
       `  · 테스트를 먼저 작성하십시오: ${example}`,
-      '  · 기존 파일의 수정은 막지 않습니다. 신규 파일에만 적용됩니다.',
+      '  · 기존 파일의 수정에도 적용됩니다. 레거시라면 지금 있는 동작을 고정하는 테스트부터 쓰십시오.',
     ].join('\n'),
   }
 }
