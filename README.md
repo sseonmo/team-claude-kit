@@ -6,7 +6,7 @@
 |---|---|
 | **team-wiki-kit** | LLM Wiki 운영 — `/wiki-init` + `wiki-ingest` · `wiki-lint` · `wiki-query` 스킬 |
 | **team-repo-audit** | 레포 AI-readiness 감사 — `ai-readiness-cartography` 스킬 |
-| **team-tdd-kit** | 테스트 없는 구현 코드 작성 차단 — `PreToolUse[Edit\|Write]` hook |
+| **team-tdd-kit** | 테스트 없는 새 구현 파일 작성 차단 (Java·Python·Node) — `PreToolUse[Edit\|Write]` hook |
 | **team-guardrails** | 되돌릴 수 없는 위험 명령 차단 — `PreToolUse[Bash]` hook (프로젝트 밖 `rm -rf` · force push) |
 | **team-push-gate** | push 전 AI 코드 리뷰 게이트 — `/push-gate-install` 로 `.git/hooks/pre-push` 설치 |
 
@@ -92,9 +92,13 @@ lib/slugify.test.ts 작성  → 통과
 lib/slugify.ts 재시도     → 통과
 ```
 
-`jq` 가 필요하다. 예외 목록이 **Next.js 레이아웃을 가정**하므로(`components/` 는 통째로 예외,
-로직은 `lib/` 에 둔다는 전제) 다른 구조의 프로젝트에서는 `hooks/tdd-guard.sh` 의 case 블록을
-조정해서 쓴다. `Edit|Write` 에 훅을 거는 다른 TDD 플러그인과 함께 켜면 둘 다 발동한다.
+Java · Python · Node 를 지원하며 각 언어의 테스트 관례를 따로 인정한다(Java 는 `src/main` ↔ `src/test`
+미러링, Python 은 `test_x.py`·`tests/`, Node 는 `*.test.*`·`__tests__/`). 그 외 언어는 검사하지 않는다.
+
+**차단은 새 파일을 만들 때만 걸린다** — 이미 있는 파일의 수정은 통과시키므로 레거시 저장소에도
+그대로 켤 수 있다. Node 예외 목록이 **Next.js 레이아웃을 가정**하므로(`components/` 는 통째로 예외,
+로직은 `lib/` 에 둔다는 전제) 다른 구조라면 `lib/tdd-rules.mjs` 의 `NODE_EXEMPT_DIRS` 를 조정해서 쓴다.
+`Edit|Write` 에 훅을 거는 다른 TDD 플러그인과 함께 켜면 둘 다 발동한다.
 
 ### team-guardrails
 

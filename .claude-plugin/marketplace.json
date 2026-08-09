@@ -30,8 +30,8 @@
     {
       "name": "team-tdd-kit",
       "source": "./plugins/team-tdd-kit",
-      "description": "테스트 없는 구현 코드 작성을 차단하는 TDD Guard hook. PreToolUse[Edit|Write]에서 대상 모듈의 테스트 파일 존재 여부를 확인하고 없으면 거부한다. TS/JS 대상, Next.js 레이아웃 예외 내장.",
-      "version": "0.1.0",
+      "description": "테스트 없는 새 구현 파일의 작성을 차단하는 TDD Guard hook. Java(src/main↔src/test 미러링) · Python(test_x.py·tests/) · Node(*.test.*·__tests__/) 세 언어의 테스트 관례를 각각 인정한다. 이미 있는 파일의 수정은 막지 않아 레거시 저장소에 그대로 켤 수 있다. 의존성 없음.",
+      "version": "0.2.0",
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",
       "keywords": ["tdd", "test", "hook", "guard", "harness", "deterministic-gate"]
