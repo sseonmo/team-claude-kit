@@ -14,8 +14,11 @@ import path from 'node:path'
 
 const NODE_EXTS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']
 
-// Next.js 프레임워크 파일. 확장자를 뗀 이름이 이 중 하나면 예외.
-const NEXT_FRAMEWORK = new Set(['layout', 'page', 'loading', 'error', 'not-found', 'middleware'])
+// Next.js 라우팅 파일. **`app/` 또는 `pages/` 안에 있을 때만** 예외다 —
+// 이름만 보면 `lib/page.ts`(페이지네이션 헬퍼) · `lib/error.js`(에러 팩토리) 처럼
+// Next.js 와 무관한 평범한 모듈이 통째로 빠져나간다.
+const NEXT_ROUTE_FILES = new Set(['layout', 'page', 'loading', 'error', 'not-found'])
+const NEXT_ROUTE_DIRS = new Set(['app', 'pages'])
 
 // 디렉터리 예외는 **세그먼트 단위**로만 본다.
 // 경로 문자열에 부분일치를 걸면 `tailwind-app/` 같은 상위 폴더 이름 하나로
@@ -76,7 +79,8 @@ function isExempt(filePath) {
         // basename 기준이다. 경로 어딘가에 `.config.` 가 있다고 예외로 두면
         // `app.config.d/lib/auth.ts` 가 통과한다.
         /\.config\.[^.]+$/.test(base) ||
-        NEXT_FRAMEWORK.has(base.slice(0, -path.extname(base).length)) ||
+        (NEXT_ROUTE_FILES.has(base.slice(0, -path.extname(base).length)) &&
+          segs.some((s) => NEXT_ROUTE_DIRS.has(s))) ||
         segs.some((s) => NODE_EXEMPT_DIRS.has(s))
       )
     case 'python':
@@ -99,7 +103,11 @@ function testCandidates(filePath, projectRoot) {
   switch (languageOf(filePath)) {
     case 'node': {
       const out = []
-      for (const e of NODE_EXTS) {
+      // 대상 파일과 같은 확장자를 먼저 본다. 첫 후보가 곧 거부 메시지의 안내 예시라,
+      // 순서를 고정하면 `.js` 파일에 `.test.ts` 를 만들라고 안내하게 된다 —
+      // 러너가 잡지 못하는 테스트 파일이 생기고, 그 존재만으로 게이트가 영구히 열린다.
+      const own = ext.slice(1)
+      for (const e of [own, ...NODE_EXTS.filter((x) => x !== own)]) {
         for (const kind of ['test', 'spec']) {
           out.push(`${dir}/${name}.${kind}.${e}`)
           out.push(`${dir}/__tests__/${name}.${kind}.${e}`)

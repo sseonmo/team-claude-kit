@@ -169,6 +169,26 @@ test('설정·타입·프레임워크 파일은 예외', () => {
   passed('/repo/src/main/java/com/acme/package-info.java')
 })
 
+test('Next.js 예외는 app/·pages/ 안에서만 적용된다', () => {
+  passed('/repo/app/dashboard/page.tsx')
+  passed('/repo/src/app/layout.tsx')
+  passed('/repo/pages/blog/loading.tsx')
+  // 이름만 겹치는 평범한 모듈. 0.1.0 은 `*/page.tsx` 로 확장자까지 요구해 이들을 막았다.
+  denied('/repo/lib/page.ts')
+  denied('/repo/lib/error.js')
+  denied('/repo/lib/middleware.ts')
+  denied('/repo/lib/layout.ts')
+})
+
+test('거부 메시지는 대상 파일과 같은 확장자를 안내한다', () => {
+  // .js 대상에 .test.ts 를 안내하면 러너가 잡지 못하는 파일이 생기고,
+  // 그 존재만으로 이후 게이트가 영구히 열린다.
+  assert.match(denied('/repo/lib/foo.js').reason, /foo\.test\.js\b/)
+  assert.match(denied('/repo/lib/foo.jsx').reason, /foo\.test\.jsx\b/)
+  assert.match(denied('/repo/lib/foo.mjs').reason, /foo\.test\.mjs\b/)
+  assert.match(denied('/repo/lib/foo.ts').reason, /foo\.test\.ts\b/)
+})
+
 test('예외 패턴은 경로가 아니라 파일명·세그먼트로만 걸린다', () => {
   // 0.1.0 은 패턴을 전체 경로에 부분일치시켜, 상위 폴더 이름 하나로
   // 그 아래 트리 전체가 조용히 무력화됐다.

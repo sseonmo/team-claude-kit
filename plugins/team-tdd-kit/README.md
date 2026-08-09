@@ -50,7 +50,7 @@
 
 | 언어 | 예외 |
 |---|---|
-| Node | `*.d.ts`, `*.config.*`, `types/`·`components/` 폴더, Next.js `layout` `page` `loading` `error` `not-found` `middleware` |
+| Node | `*.d.ts`, `*.config.*`, `types/`·`components/` 폴더, `app/`·`pages/` **안의** Next.js 라우팅 파일(`layout` `page` `loading` `error` `not-found`) |
 | Python | `__init__.py` `setup.py` `conftest.py` `manage.py`, `migrations/` 폴더 |
 | Java | `package-info.java` `module-info.java` |
 
