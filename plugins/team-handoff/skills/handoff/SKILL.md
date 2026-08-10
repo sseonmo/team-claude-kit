@@ -46,10 +46,16 @@ allowed-tools:
 스크립트 경로는 설치 형태(플러그인 / 개인 스킬)에 따라 다르므로 먼저 찾는다:
 
 ```bash
-STATE=$(find "$HOME/.claude/plugins" "$HOME/.claude/skills" \
+STATE=$(find "$HOME/.claude/plugins/cache" "$HOME/.claude/skills" \
   -path '*handoff/scripts/state.sh' 2>/dev/null | head -1)
 bash "$STATE"
 ```
+
+`$HOME/.claude/plugins` 전체가 아니라 **`cache` 만** 본다. 마켓플레이스를 로컬에 클론해 두면
+`plugins/marketplaces/…` 아래에도 같은 파일이 있어 `find` 가 둘을 찾는데, 그쪽은 **배포 소스지
+설치본이 아니다.** `find` 의 출력 순서는 파일시스템 순회 순서라 보장되지 않으므로(리눅스 ext4 는
+해시 순서), 마켓플레이스만 pull 하고 재설치하지 않은 상태에서 그쪽이 먼저 잡히면
+**설치하지 않은 버전의 스크립트가 실행된다.** 설치본은 user·project 스코프 모두 `cache` 아래에 놓인다.
 
 `STATE` 가 비면 스킬이 제대로 설치되지 않은 것이다 — 사용자에게 알리고 중단한다.
 
