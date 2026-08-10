@@ -28,13 +28,23 @@ SLUG="$(slug_of "$CWD")"
 MEM="$HOME/.claude/projects/$SLUG/memory"
 
 # 계산한 경로가 없으면 basename 으로 후보를 찾는다(워크트리·심링크 대비).
+# 단 접미사가 정확히 `-<BASE>` 인 후보가 **유일할 때만** 채택한다.
+# 느슨한 glob(`*BASE`)으로 head -1 을 집으면 basename 만 같은 무관한 프로젝트가 걸린다 —
+# 그 경우 남의 메모리에 인계를 쓰거나, 현재 프로젝트의 MEMORY.md 가 자동 로드되지 않아
+# 이 스킬의 핵심 메커니즘(대기 포인터)이 조용히 죽는다. 애매하면 채택하지 않는 쪽이 맞다.
+MEM_FALLBACK=no
 if [ ! -d "$MEM" ]; then
   BASE="$(basename "$CWD" | sed -e 's#[_.]#-#g')"
-  CAND="$(ls -1d "$HOME/.claude/projects/"*"$BASE" 2>/dev/null | head -1)"
-  [ -n "$CAND" ] && MEM="$CAND/memory"
+  CANDS="$(ls -1d "$HOME/.claude/projects/"*"-$BASE" 2>/dev/null)"
+  CAND_N="$(printf '%s' "$CANDS" | grep -c . || true)"
+  if [ "$CAND_N" = "1" ]; then
+    MEM="$CANDS/memory"
+    MEM_FALLBACK=yes
+  fi
 fi
 
 echo "MEMORY_DIR=$MEM"
+echo "MEMORY_DIR_FALLBACK=$MEM_FALLBACK"
 echo "MEMORY_EXISTS=$([ -d "$MEM" ] && echo yes || echo no)"
 echo "HANDOFF_FILE=$MEM/handoff-active.md"
 echo "HANDOFF_PENDING=$([ -f "$MEM/handoff-active.md" ] && echo yes || echo no)"
@@ -46,7 +56,9 @@ echo "CWD=$CWD"
 # MEMORY_LINES 만 임계가 걸린 신호이고, 나머지는 사람이 보고 판단할 참고값이다.
 IDX="$MEM/MEMORY.md"
 if [ -f "$IDX" ]; then
-  echo "MEMORY_LINES=$(grep -c '^- \[' "$IDX" 2>/dev/null || echo 0)"
+  # grep -c 는 0건이어도 "0" 을 찍고 exit 1 이라, `|| echo 0` 을 붙이면 0 이 두 번 나온다.
+  idx_lines="$(grep -c '^- \[' "$IDX" 2>/dev/null || true)"
+  echo "MEMORY_LINES=${idx_lines:-0}"
   echo "MEMORY_BYTES=$(wc -c < "$IDX" | tr -d ' ')"
   # 줄 길이는 바이트가 아니라 문자로 센다 — 한글 1자가 3바이트라 바이트로 재면 3배로 부풀려진다.
   # wc -m 이 문자를 세고, awk length() 는 로케일과 무관하게 바이트를 세므로 쓰지 않는다.
@@ -80,8 +92,10 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   echo "DIRTY_COUNT=$(git status --porcelain | wc -l | tr -d ' ')"
   echo "STASH_COUNT=$(git stash list | wc -l | tr -d ' ')"
   echo "WORKTREE_COUNT=$(git worktree list 2>/dev/null | wc -l | tr -d ' ')"
+  # 상태 코드를 그대로 남긴다. 화이트리스트로 거르면 삭제( D)·add 후 재수정(AM)·rename(R )이
+  # 빠져 "미커밋 파일이 빠짐없이 적혔는가" 체크리스트가 조용히 통과한다.
   echo "--- MODIFIED (tracked) ---"
-  git status --porcelain | grep -E '^( M|M |MM|A |D )' | sed 's/^...//' || true
+  git status --porcelain | grep -v '^??' || true
   echo "--- UNTRACKED ---"
   git status --porcelain | grep '^??' | sed 's/^...//' || true
 else
