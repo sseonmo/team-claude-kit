@@ -46,16 +46,26 @@ allowed-tools:
 스크립트 경로는 설치 형태(플러그인 / 개인 스킬)에 따라 다르므로 먼저 찾는다:
 
 ```bash
-STATE=$(find "$HOME/.claude/plugins/cache" "$HOME/.claude/skills" \
-  -path '*handoff/scripts/state.sh' 2>/dev/null | head -1)
+STATE=$(find "$HOME/.claude/plugins/cache" \
+  -path '*team-handoff/*/skills/handoff/scripts/state.sh' 2>/dev/null | sort -V | tail -1)
+[ -f "$STATE" ] || STATE="$HOME/.claude/skills/handoff/scripts/state.sh"
 bash "$STATE"
 ```
 
-`$HOME/.claude/plugins` 전체가 아니라 **`cache` 만** 본다. 마켓플레이스를 로컬에 클론해 두면
-`plugins/marketplaces/…` 아래에도 같은 파일이 있어 `find` 가 둘을 찾는데, 그쪽은 **배포 소스지
-설치본이 아니다.** `find` 의 출력 순서는 파일시스템 순회 순서라 보장되지 않으므로(리눅스 ext4 는
-해시 순서), 마켓플레이스만 pull 하고 재설치하지 않은 상태에서 그쪽이 먼저 잡히면
-**설치하지 않은 버전의 스크립트가 실행된다.** 설치본은 user·project 스코프 모두 `cache` 아래에 놓인다.
+`head -1` 이 아니라 **`sort -V | tail -1`** 인 이유: 캐시에는 구버전이 지워지지 않고 **여러 버전이
+함께 남는다**(쓰고 있는 세션이 있으면 참조가 풀릴 때까지 남는다). `find` 의 출력 순서는 파일시스템
+순회 순서라 보장되지 않으므로 `head -1` 은 **구버전 스크립트를 실행할 수 있다.** 버전으로 정렬해
+최신 설치본을 고정한다.
+
+**`find` 에 `cache` 한 루트만 준다.** 두 루트를 함께 주면 `sort -V` 가 버전이 아니라 **전체 경로**를
+비교해 `plugins/` < `skills/` 순으로 늘 개인 스킬이 이긴다. 그래서 개인 스킬 폴백은 `find` 가 아니라
+**다음 줄에서 따로** 처리한다. 마켓플레이스를 로컬에 클론해 두면 `plugins/marketplaces/…` 아래에도
+같은 파일이 있지만 그쪽은 **배포 소스지 설치본이 아니므로** 보지 않는다.
+
+> 남는 한계: 플러그인을 갱신하고 **재시작하기 전**에는 세션이 구버전 SKILL.md 를 든 채 최신
+> `state.sh` 를 부른다. `PATH` 로 실행 중인 버전을 읽는 방법도 시도했으나 — `PATH` 에는 밀려난
+> 버전(`.orphaned_at` 이 찍힌 채 참조가 남은 것)까지 함께 실려 있어 **순서에 좌우되므로** 더 나쁘다.
+> `state.sh` 는 출력 형식이 안정적인 조회 스크립트라 이 한 릴리스 차이는 감수한다.
 
 `STATE` 가 비면 스킬이 제대로 설치되지 않은 것이다 — 사용자에게 알리고 중단한다.
 
