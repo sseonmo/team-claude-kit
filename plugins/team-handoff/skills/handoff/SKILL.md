@@ -49,7 +49,7 @@ allowed-tools:
 STATE=$(find "$HOME/.claude/plugins/cache" \
   -path '*team-handoff/*/skills/handoff/scripts/state.sh' 2>/dev/null | sort -V | tail -1)
 [ -f "$STATE" ] || STATE="$HOME/.claude/skills/handoff/scripts/state.sh"
-bash "$STATE"
+[ -f "$STATE" ] && bash "$STATE" || echo "HANDOFF_STATE_NOT_FOUND"
 ```
 
 `head -1` 이 아니라 **`sort -V | tail -1`** 인 이유: 캐시에는 구버전이 지워지지 않고 **여러 버전이
@@ -67,7 +67,10 @@ bash "$STATE"
 > 버전(`.orphaned_at` 이 찍힌 채 참조가 남은 것)까지 함께 실려 있어 **순서에 좌우되므로** 더 나쁘다.
 > `state.sh` 는 출력 형식이 안정적인 조회 스크립트라 이 한 릴리스 차이는 감수한다.
 
-`STATE` 가 비면 스킬이 제대로 설치되지 않은 것이다 — 사용자에게 알리고 중단한다.
+출력이 `HANDOFF_STATE_NOT_FOUND` 면 스킬이 제대로 설치되지 않은 것이다 — 사용자에게 알리고 중단한다.
+**빈 문자열로 판정하지 마라.** 폴백이 `$STATE` 를 항상 채우므로 비는 경우는 없고, 파일이 없으면
+`bash` 가 stderr 로만 죽어 **출력이 그냥 비어 보인다.** 존재를 확인해 명시적으로 신호를 내야
+"설치 안 됨"과 "스크립트가 아무것도 못 찾음"이 구분된다.
 
 - `HANDOFF_PENDING=no` → **저장 모드**
 - `HANDOFF_PENDING=yes` → **재개 모드**
