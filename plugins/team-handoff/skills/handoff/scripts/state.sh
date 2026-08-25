@@ -5,6 +5,7 @@
 #
 #   bash state.sh          # 상태 수집
 #   bash state.sh --paths  # 경로만(빠름)
+#   bash state.sh --verify # 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
 #
 # 의존성 없음. GNU(리눅스)·BSD(macOS) 양쪽에서 동작한다.
 
@@ -48,8 +49,87 @@ echo "MEMORY_DIR_FALLBACK=$MEM_FALLBACK"
 echo "MEMORY_EXISTS=$([ -d "$MEM" ] && echo yes || echo no)"
 echo "HANDOFF_FILE=$MEM/handoff-active.md"
 echo "HANDOFF_PENDING=$([ -f "$MEM/handoff-active.md" ] && echo yes || echo no)"
+
+# 이 스킬의 실제 대기 신호는 파일이 아니라 **인덱스의 포인터 한 줄**이다.
+# 새 세션이 자동으로 읽는 것은 MEMORY.md 뿐이므로, 파일만 있고 포인터가 없으면 인계는 100% 실패한다.
+# 그런데 그 실패는 "사용자가 /handoff 를 칠 이유를 모른다"는 형태로 나타나 영영 발견되지 않는다.
+# 그래서 둘을 따로 재고, 조합을 HANDOFF_STATE 한 값으로 내려준다.
+_ho="$MEM/handoff-active.md"
+_ptr=no
+[ -f "$MEM/MEMORY.md" ] && grep -q '](handoff-active\.md)' "$MEM/MEMORY.md" 2>/dev/null && _ptr=yes
+echo "INDEX_PTR=$_ptr"
+if [ -f "$_ho" ] && [ "$_ptr" = "yes" ]; then echo "HANDOFF_STATE=pending"
+elif [ -f "$_ho" ]; then                      echo "HANDOFF_STATE=orphan"
+elif [ "$_ptr" = "yes" ]; then                echo "HANDOFF_STATE=ghost"
+else                                          echo "HANDOFF_STATE=none"; fi
 echo "CWD=$CWD"
 [ "${1:-}" = "--paths" ] && exit 0
+
+# ── --verify: 저장 직후 자기검증 ──────────────────────────
+# 저장 모드의 체크리스트는 전부 LLM 자기보고라, 지키지 않아도 아무도 모른다.
+# 실제로 지켜지지 않은 항목(특히 "다음 단계 1 = 실행 명령")이 반복 관측됐다.
+# 그래서 기계로 셀 수 있는 것만 여기서 센다. 판정은 pass/fail 로 명확히 낸다.
+if [ "${1:-}" = "--verify" ]; then
+  HO="$MEM/handoff-active.md"
+  fail=0
+  if [ ! -f "$HO" ]; then
+    echo "VERIFY_FILE=FAIL — 저장된 handoff-active.md 가 없다"
+    echo "VERIFY_RESULT=fail"; exit 1
+  fi
+  echo "VERIFY_FILE=ok"
+
+  # ① 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명)
+  if [ "$_ptr" = "yes" ]; then
+    echo "VERIFY_INDEX_PTR=ok"
+  else
+    echo "VERIFY_INDEX_PTR=FAIL — MEMORY.md 에 ](handoff-active.md) 포인터가 없다"
+    fail=1
+  fi
+
+  # ② 필수 섹션 — 이모지·괄호 표기가 흔들려도 걸리도록 핵심어로만 찾는다
+  miss=""
+  for sec in "지금 무엇을 하는 중인가" "다음 단계" "하지 말 것" "확인된 사실" "결정 대기" "상태"; do
+    grep -q "^## .*$sec" "$HO" || miss="$miss $sec"
+  done
+  if [ -z "$miss" ]; then
+    echo "VERIFY_SECTIONS=ok"
+  else
+    echo "VERIFY_SECTIONS=FAIL — 누락:$miss"
+    fail=1
+  fi
+
+  # ③ "다음 단계 1" 이 실행 명령인가 — 다음 세션이 첫 명령을 바로 칠 수 있어야 한다.
+  #    1 항목은 여러 줄에 걸치므로 `1.` 부터 `2.` 직전까지를 한 덩어리로 본다.
+  step1="$(awk '/^## .*다음 단계/{f=1;next} f&&/^## /{exit} f' "$HO" \
+         | awk '/^[[:space:]]*1\./{g=1} g&&/^[[:space:]]*2\./{exit} g')"
+  if printf '%s' "$step1" | grep -q '`'; then
+    echo "VERIFY_STEP1_CMD=ok"
+  else
+    echo "VERIFY_STEP1_CMD=FAIL — '다음 단계 1' 에 실행 명령(백틱)이 없다"
+    fail=1
+  fi
+
+  # ④ 미커밋 수 대조 — 본문이 실제와 어긋나면 다음 세션이 작업을 잃는다
+  if git rev-parse --git-dir >/dev/null 2>&1; then
+    now="$(git status --porcelain | wc -l | tr -d ' ')"
+    # frontmatter 의 description 에도 "미커밋" 이 흔히 들어가므로 파일 전체를 훑으면
+    # 제목의 일련번호가 개수로 잘못 잡힌다. "## 상태" 섹션 안에서만 센다.
+    said="$(awk '/^## 상태/{f=1;next} f&&/^## /{exit} f' "$HO" \
+          | grep -m1 '미커밋' | grep -oE '[0-9]+' | head -1)"
+    if [ -z "$said" ]; then
+      echo "VERIFY_DIRTY=FAIL — 본문에 미커밋 수가 없다(실제 $now)"; fail=1
+    elif [ "$said" = "$now" ]; then
+      echo "VERIFY_DIRTY=ok ($now)"
+    else
+      echo "VERIFY_DIRTY=FAIL — 본문 $said · 실제 $now"; fail=1
+    fi
+  else
+    echo "VERIFY_DIRTY=skip (git 아님)"
+  fi
+
+  [ "$fail" = "0" ] && echo "VERIFY_RESULT=pass" || echo "VERIFY_RESULT=fail"
+  exit "$fail"
+fi
 
 # ── 메모리 인덱스 ────────────────────────────────────────
 # MEMORY.md 는 매 세션 자동 로드되므로 크기가 곧 고정 비용이다.
