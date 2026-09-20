@@ -1,0 +1,11 @@
+{
+  "name": "team-security-scan",
+  "version": "0.1.0",
+  "description": "리포 전체를 OWASP Top 10:2025 열 개 항목으로 감사하고, 검증을 통과한 발견만 담은 단일 파일 HTML 대시보드를 남긴다. 항목별 서브에이전트가 병렬로 훑고 각 발견을 반박 검증해 기각된 것은 리포트에 넣지 않는다. 2021 목록을 기본값으로 쓰지 않도록 2025 목록과 변환표를 참조 문서로 강제하고, 심각도·중복 배정·scenario 작성 규칙을 스키마로 고정한다. 코드 조각은 LLM 이 받아쓰지 않고 스크립트가 file·line 으로 리포에서 직접 읽어온다. 돌리지 못한 도구는 리포트에 배너로 남겨 '스캔했으므로 안전하다'는 오해를 막는다. 언어·스택 무관. 의존성 없음 — Python 3 stdlib only.",
+  "author": {
+    "name": "sseon",
+    "email": "mo3509@gmail.com"
+  },
+  "keywords": ["security", "owasp", "audit", "vulnerability", "sast", "code-review"],
+  "license": "MIT"
+}

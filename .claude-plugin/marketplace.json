@@ -71,6 +71,15 @@
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",
       "keywords": ["plan", "review", "verify", "design", "lens", "cross-check"]
+    },
+    {
+      "name": "team-security-scan",
+      "source": "./plugins/team-security-scan",
+      "description": "리포 전체를 OWASP Top 10:2025 열 개 항목으로 감사하고, 검증을 통과한 발견만 담은 단일 파일 HTML 대시보드를 남긴다. 항목별 서브에이전트가 병렬로 훑고 critical·high 는 반박 검증을 거쳐 기각된 것은 리포트에 넣지 않는다. 2021 번호를 기본값으로 쓰지 않도록 변환표를 강제하고, '있어야 할 것이 없는' 부재 점검을 항목마다 따로 지시한다. 코드 조각은 LLM 이 받아쓰지 않고 스크립트가 file·line 으로 디스크에서 읽는다. 못 돌린 도구는 배너로 남겨 '스캔했으므로 안전하다'는 오해를 막는다. 언어·스택 무관. 의존성 없음 — Python 3 stdlib only.",
+      "version": "0.1.0",
+      "author": { "name": "sseon", "email": "mo3509@gmail.com" },
+      "category": "workflow",
+      "keywords": ["security", "owasp", "audit", "vulnerability", "sast", "code-review"]
     }
   ]
 }
