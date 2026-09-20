@@ -9,6 +9,9 @@
 | **team-tdd-kit** | 테스트 없는 구현 파일의 작성·수정 차단 (Java·Python·Node) — `PreToolUse[Edit\|Write]` hook |
 | **team-guardrails** | 되돌릴 수 없는 위험 명령 차단 — `PreToolUse[Bash]` hook (프로젝트 밖 `rm -rf` · force push) |
 | **team-push-gate** | push 전 AI 코드 리뷰 게이트 — `/push-gate-install` 로 `.git/hooks/pre-push` 설치 |
+| **team-handoff** | `/clear` 를 건너뛰는 작업 인계 — `/handoff` 하나로 저장·재개 |
+| **team-plan-verify** | 계획을 네 관점(사용자·엔지니어·실패/보안·과잉)으로 순차 검증 — `/plan-verify` |
+| **team-security-scan** | OWASP Top 10:2025 보안 감사 — `owasp-scan` 스킬, 검증 통과분만 담은 HTML 리포트 |
 
 ## 설치
 
@@ -21,6 +24,9 @@
 /plugin install team-tdd-kit@team-kit
 /plugin install team-guardrails@team-kit
 /plugin install team-push-gate@team-kit
+/plugin install team-handoff@team-kit
+/plugin install team-plan-verify@team-kit
+/plugin install team-security-scan@team-kit
 ```
 
 private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub 접근 권한과
@@ -44,7 +50,10 @@ private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub �
     "team-repo-audit@team-kit": true,
     "team-tdd-kit@team-kit": true,
     "team-guardrails@team-kit": true,
-    "team-push-gate@team-kit": true
+    "team-push-gate@team-kit": true,
+    "team-handoff@team-kit": true,
+    "team-plan-verify@team-kit": true,
+    "team-security-scan@team-kit": true
   }
 }
 ```
@@ -139,6 +148,57 @@ git push --no-verify        → 건너뛴다
 **fail-closed 다.** claude 를 못 찾음 · 실행 실패 · 타임아웃 · `VERDICT` 줄 없음 → 전부 차단.
 `.md` 만 바뀐 push 는 리뷰를 건너뛴다(의도된 동작).
 `core.hooksPath` 를 쓰는 저장소(husky·lefthook 등)에서는 걸리지 않으며, 설치할 때 그 사실을 경고한다.
+
+### team-handoff
+
+```
+/handoff        → 저장 (그다음 /clear 는 직접 입력)
+/handoff        → 재개
+```
+
+명령은 하나다. 저장이냐 재개냐는 스킬이 판정하므로 문구를 외울 필요가 없다.
+
+저장하면 프로젝트 메모리에 인계 파일을 쓰고 **자동 로드되는 `MEMORY.md` 에 대기 포인터를 심는다** —
+그래서 새 세션이 스스로 "인계받을 작업이 있다"를 안다. 요약이 아니라 **재개 지시서**를 쓰므로
+다음 세션이 첫 명령을 바로 칠 수 있다.
+
+재개하면 기록을 현재 repo 와 대조하고, 어긋나면 파일이 아니라 현실을 믿고 그 사실을 알린다.
+작업이 끝나면 기존 메모리 **갱신을 신설보다 우선**해 인덱스가 순증하지 않게 한다.
+
+`/clear` 자체는 CLI 동작이라 스킬이 실행할 수 없다 — 그 한 번만 직접 입력한다.
+
+### team-plan-verify
+
+```
+/plan-verify                 # 대상을 스스로 찾고 규모를 판정
+/plan-verify docs/design.md  # 문서 지정
+/plan-verify feature         # 규모 강제 (full | feature)
+```
+
+렌즈 넷이 **서로의 영역을 침범하지 않고** 순서대로 돈다 — 사용자 → 엔지니어 → 실패/보안 → 과잉.
+같은 각도로 여러 번 보면 같은 것만 잡히기 때문이다. 사용자 렌즈만이 **기능이 통째로 없는 것**을
+잡고, 과잉 렌즈는 **앞선 셋이 추가한 것**을 재심사한다(아무것도 덜어내지 못하면 그 라운드는 실패).
+
+**대상이 파일이 아니어도 된다.** 플래닝 직후가 검증하기 가장 좋은 시점인데 그때는 문서가 없다 —
+대화로만 합의한 계획이면 한 벌로 정리해 고정한 뒤 검증에 들어간다.
+검증 중에는 파일을 쓰지 않고, 발견을 모아 승인 후 일괄 반영한다.
+
+### team-security-scan
+
+```
+/owasp-scan
+```
+
+"이 레포 보안 점검해줘", "릴리스 전에 취약점 스캔" 처럼 말해도 걸린다.
+`.security/owasp-<날짜>.html` 에 단일 파일 대시보드를 남긴다.
+
+A01~A10 을 서브에이전트 열 개로 나눠 훑고, `critical`·`high` 는 **반박 검증**을 거쳐
+기각된 것은 리포트에 넣지 않는다. 항목마다 "있어야 할 것이 없는" **부재 점검**을 따로 지시한다 —
+스킬 없이 돌렸을 때 완전히 놓친 3건이 전부 그 유형이었다(보안 로깅 전무·빈 `catch` fail-open·`DEBUG=true`).
+
+**코드는 고치지 않는다.** 산출물은 리포트이고, 수정은 별도 작업으로 한다.
+못 돌린 도구는 리포트에 배너로 남는다 — **도구가 조용한 영역은 깨끗한 영역이 아니다**(실측 커버리지 약 1/3).
+조립 스크립트는 Python 3 stdlib only.
 
 ## 참고 문서
 
