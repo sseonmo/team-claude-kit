@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # handoff 스킬 보조 — 현재 세션의 "기계적 상태"를 한 번에 수집한다.
 # LLM 이 손으로 git 명령을 나열하다 빠뜨리는 것을 막기 위한 것이므로, 여기서는 판단하지 않고 사실만 찍는다.
-# 임계 판정과 정리 제안 여부는 전부 SKILL.md 가 한다.
+# 예외: 경로를 믿어도 되는지(CONFIRM_DIR)는 여기서 결론까지 내린다 — 조합 해석을 모델에 맡기면 틀린다.
 #
 #   bash state.sh          # 상태 수집
 #   bash state.sh --paths  # 경로만(빠름)
@@ -15,14 +15,6 @@
 set -uo pipefail
 
 # ── 이식성 헬퍼 ──────────────────────────────────────────
-# 파일 수정일(YYYY-MM-DD). GNU 는 stat -c, BSD 는 stat -f 라 둘 다 시도한다.
-mtime_date() {
-  local d
-  d="$(stat -c '%y' "$1" 2>/dev/null | cut -d' ' -f1)"
-  [ -n "$d" ] || d="$(stat -f '%Sm' -t '%Y-%m-%d' "$1" 2>/dev/null)"
-  printf '%s' "${d:-?}"
-}
-
 # 파일이 며칠 묵었는지. `find -mtime` 은 하루씩 되짚어야 해서 느리므로 epoch 으로 뺀다.
 age_days() {
   local e now
@@ -86,8 +78,7 @@ echo "MEMORY_EXISTS=$([ -d "$MEM" ] && echo yes || echo no)"
 echo "HANDOFF_FILE=$MEM/handoff-active.md"
 echo "HANDOFF_PENDING=$([ -f "$MEM/handoff-active.md" ] && echo yes || echo no)"
 # 인계의 나이는 재개 모드가 가장 먼저 알아야 할 값이다 — 오래된 인계일수록 본문이 현재 repo 와
-# 어긋나 있고(원칙 4), 며칠씩 방치된 것은 이미 해소됐을 수도 있다. STALE_30D 는 인계 파일을
-# 명시적으로 제외하므로(정리 후보로 오인돼 삭제되면 안 된다) 여기서 따로 찍는다.
+# 어긋나 있고(원칙 4), 며칠씩 방치된 것은 이미 해소됐을 수도 있다.
 echo "HANDOFF_AGE_DAYS=$(age_days "$MEM/handoff-active.md")"
 
 # 이 스킬의 실제 대기 신호는 파일이 아니라 **인덱스의 포인터 한 줄**이다.
@@ -114,6 +105,16 @@ if [ "$MEM_SOURCE" = "session" ] && [ "$MEM" != "$MEM_CALC" ]; then
   echo "CWD_MOVED=yes"
 else
   echo "CWD_MOVED=no"
+fi
+# 이 경로에 써도 되는가 — SOURCE·FALLBACK·EXISTS 조합의 결론이다.
+# session 은 트랜스크립트 실물이라 믿는다. 추정한 경로(basename)이거나, 계산값인데 디렉토리가
+# 없으면 쓰기 전에 사람이 확인해야 한다 — 틀린 곳에 만들면 진짜 인계가 방치된다.
+if [ "$MEM_FALLBACK" = "yes" ]; then
+  echo "CONFIRM_DIR=yes — basename 으로 추정한 경로다"
+elif [ "$MEM_SOURCE" = "cwd" ] && [ ! -d "$MEM" ]; then
+  echo "CONFIRM_DIR=yes — 세션을 못 찾아 계산한 경로인데 디렉토리가 없다"
+else
+  echo "CONFIRM_DIR=no"
 fi
 [ "${1:-}" = "--paths" ] && exit 0
 
@@ -183,40 +184,6 @@ if [ "${1:-}" = "--verify" ]; then
 
   [ "$fail" = "0" ] && echo "VERIFY_RESULT=pass" || echo "VERIFY_RESULT=fail"
   exit "$fail"
-fi
-
-# ── 메모리 인덱스 ────────────────────────────────────────
-# MEMORY.md 는 매 세션 자동 로드되므로 크기가 곧 고정 비용이다.
-# MEMORY_LINES 만 임계가 걸린 신호이고, 나머지는 사람이 보고 판단할 참고값이다.
-IDX="$MEM/MEMORY.md"
-if [ -f "$IDX" ]; then
-  # grep -c 는 0건이어도 "0" 을 찍고 exit 1 이라, `|| echo 0` 을 붙이면 0 이 두 번 나온다.
-  idx_lines="$(grep -c '^- \[' "$IDX" 2>/dev/null || true)"
-  echo "MEMORY_LINES=${idx_lines:-0}"
-  echo "MEMORY_BYTES=$(wc -c < "$IDX" | tr -d ' ')"
-  # 줄 길이는 바이트가 아니라 문자로 세려는 것이다 — 한글 1자가 3바이트라 바이트로 재면 3배가 된다.
-  # 다만 `wc -m` 이 문자를 세는 것은 **로케일이 UTF-8 일 때뿐**이고, LC_ALL=C 면 바이트를 센다
-  # (한글 8자 → 9 vs 25). 임계가 걸린 신호가 아니라 사람이 눈으로 보는 참고값이라 보정하지 않는다.
-  longest=0
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    c=$(printf '%s' "$line" | wc -m | tr -d ' ')
-    [ "$c" -gt "$longest" ] && longest=$c
-  done <<EOF
-$(grep '^- \[' "$IDX" 2>/dev/null)
-EOF
-  echo "MEMORY_LONGEST_CHARS=$longest"
-else
-  echo "MEMORY_LINES=0"
-  echo "MEMORY_BYTES=0"
-  echo "MEMORY_LONGEST_CHARS=0"
-fi
-
-if [ -d "$MEM" ]; then
-  echo "MEMORY_FILES=$(find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null | wc -l | tr -d ' ')"
-  echo "--- STALE_30D (30일 이상 미수정 — 정리 후보) ---"
-  find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' ! -name 'handoff-active.md' -mtime +30 2>/dev/null \
-    | sort | while read -r f; do echo "  $(basename "$f")  ($(mtime_date "$f"))"; done
 fi
 
 # ── git 상태 ─────────────────────────────────────────────
