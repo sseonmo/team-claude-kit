@@ -6,6 +6,8 @@
 #   bash state.sh          # 상태 수집
 #   bash state.sh --paths  # 경로만(빠름)
 #   bash state.sh --verify # 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
+#   bash state.sh --consume # 재개 직후 인계 파일 삭제 + MEMORY.md ⏸ 줄 제거
+#   bash state.sh --archive # 다른 작업의 미재개 인계를 handoff-archive-<시각>.md 로 옮김
 #
 # 메모리 디렉토리는 cwd 가 아니라 **세션 ID 로 찾은 트랜스크립트의 부모**로 정한다.
 # 그래서 `cd` 한 뒤 실행해도 같은 프로젝트를 본다(출처는 MEMORY_DIR_SOURCE 가 밝힌다).
@@ -28,10 +30,14 @@ age_days() {
 
 # ── 프로젝트 메모리 디렉토리 찾기 ─────────────────────────
 # Claude Code 규칙: cwd 의 `/` `_` `.` 를 `-` 로 바꾼 것이 ~/.claude/projects/ 아래 디렉토리명.
-slug_of() { printf '%s' "$1" | sed -e 's#[/_.]#-#g'; }
+# Windows 는 네이티브 경로(`C:\a\b`)의 `:` `\` 도 `-` 가 된다(`C--a-b`). Git Bash 의 `pwd` 는
+# `/c/a/b` 를 돌려줘 `-c-a-b` 로 어긋난다 — 그러면 CWD_MOVED 가 늘 yes 이고, 세션 앵커가 없을 때
+# 엉뚱한 메모리 경로를 잡는다. 그래서 네이티브 경로(`pwd -W`, MSYS 전용)로 슬러그를 만든다.
+slug_of() { printf '%s' "$1" | sed -e 's#[:/\\_.]#-#g'; }
 
 CWD="$(pwd)"
-MEM_CALC="$HOME/.claude/projects/$(slug_of "$CWD")/memory"
+CWD_NATIVE="$(pwd -W 2>/dev/null || printf '%s' "$CWD")"
+MEM_CALC="$HOME/.claude/projects/$(slug_of "$CWD_NATIVE")/memory"
 MEM="$MEM_CALC"
 MEM_SOURCE=cwd
 
@@ -118,6 +124,38 @@ else
 fi
 [ "${1:-}" = "--paths" ] && exit 0
 
+# ── --consume: 재개 직후 인계 소비 ────────────────────────
+# "읽었으면 지운다"를 모델 판단에 맡겼더니 재개 세션 대부분이 지우지 않았고, 포인터가 남아
+# 다른 세션이 같은 인계를 한 번 더 이어받았다. 그래서 명령 하나로 기계적으로 처리한다.
+# MEMORY.md 는 CRLF 일 수 있다. Git Bash 의 grep·awk 는 기본으로 CR 을 떨구므로
+# grep -U / awk BINMODE=3 으로 바이트 그대로 다시 쓴다(sed -i 도 CR 을 떨군다).
+if [ "${1:-}" = "--consume" ]; then
+  rm -f "$_ho"
+  if [ -f "$MEM/MEMORY.md" ]; then
+    grep -U -v '^- \[.*](handoff-active\.md)' "$MEM/MEMORY.md" > "$MEM/MEMORY.md.tmp"
+    mv "$MEM/MEMORY.md.tmp" "$MEM/MEMORY.md"
+  fi
+  if [ ! -f "$_ho" ] && ! grep -q '^- \[.*](handoff-active\.md)' "$MEM/MEMORY.md" 2>/dev/null; then
+    echo "CONSUME_RESULT=ok"; exit 0
+  fi
+  echo "CONSUME_RESULT=fail"; exit 1
+fi
+
+# ── --archive: 다른 작업의 미재개 인계를 보관 ─────────────
+# 인계 칸은 하나라, 재개되지 않은 다른 주제의 인계 위에 저장하면 그 작업이 사라진다.
+# 덮어쓰기 전에 날짜를 붙여 옮기고, 인덱스에 🗄 줄을 남겨 다음 세션이 존재를 알게 한다.
+if [ "${1:-}" = "--archive" ]; then
+  [ -f "$_ho" ] || { echo "ARCHIVE_RESULT=skip — 보관할 인계가 없다"; exit 0; }
+  _ts="$(date +%Y%m%d-%H%M)"
+  _arc="handoff-archive-$_ts.md"
+  mv "$_ho" "$MEM/$_arc"
+  if [ -f "$MEM/MEMORY.md" ]; then
+    awk -v BINMODE=3 -v a="$_arc" '/^- \[.*\]\(handoff-active\.md\)/{sub(/\[⏸ 진행 중 인계/,"[🗄 보관된 인계"); sub(/\(handoff-active\.md\)/,"(" a ")")}1' \
+      "$MEM/MEMORY.md" > "$MEM/MEMORY.md.tmp" && mv "$MEM/MEMORY.md.tmp" "$MEM/MEMORY.md"
+  fi
+  echo "ARCHIVE_RESULT=ok — $_arc"; exit 0
+fi
+
 # ── --verify: 저장 직후 자기검증 ──────────────────────────
 # 저장 모드의 체크리스트는 전부 LLM 자기보고라, 지키지 않아도 아무도 모른다.
 # 실제로 지켜지지 않은 항목(특히 "다음 단계 1 = 실행 명령")이 반복 관측됐다.
@@ -130,6 +168,17 @@ if [ "${1:-}" = "--verify" ]; then
     echo "VERIFY_RESULT=fail"; exit 1
   fi
   echo "VERIFY_FILE=ok"
+
+  # ⓪ 방금 쓴 파일인가 — 쓰기가 조용히 실패하면(따옴표 이스케이프 오류 등) **이전 인계 파일**이
+  #    그대로 남아 아래 검사를 전부 통과한다. 실제로 그렇게 pass 가 난 적이 있다.
+  _e="$(stat -c '%Y' "$HO" 2>/dev/null || stat -f '%m' "$HO" 2>/dev/null)"
+  _age=$(( $(date +%s) - ${_e:-0} ))
+  if [ "$_age" -le 600 ]; then
+    echo "VERIFY_FRESH=ok (${_age}초 전)"
+  else
+    echo "VERIFY_FRESH=FAIL — handoff-active.md 가 ${_age}초 전 파일이다. 이번 쓰기가 반영되지 않았다"
+    fail=1
+  fi
 
   # ① 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명)
   if [ "$_ptr" = "yes" ]; then
