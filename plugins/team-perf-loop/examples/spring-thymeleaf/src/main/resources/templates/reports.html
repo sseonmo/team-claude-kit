@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/head :: head('리포트')}"></head>
+<body>
+<div th:replace="~{fragments/nav :: nav}"></div>
+<main class="container">
+  <h1>리포트</h1>
+  <ul class="bars">
+    <li th:each="r : ${rows}">
+      <span class="label" th:text="${r.name}">이름</span>
+      <span class="bar" th:style="'width:' + ${r.amount / 200} + 'px'"></span>
+    </li>
+  </ul>
+</main>
+</body>
+</html>

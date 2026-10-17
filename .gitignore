@@ -1,2 +1,9 @@
 .DS_Store
 *.log
+
+# team-perf-loop 예제: make-assets.mjs 가 만드는 수 MB 짜리 리소스
+plugins/team-perf-loop/examples/spring-thymeleaf/src/main/resources/static/js/vendor.js
+plugins/team-perf-loop/examples/spring-thymeleaf/src/main/resources/static/css/vendor.css
+plugins/team-perf-loop/examples/spring-thymeleaf/src/main/resources/static/img/hero.png
+plugins/team-perf-loop/examples/spring-thymeleaf/build/
+plugins/team-perf-loop/examples/spring-thymeleaf/.gradle/

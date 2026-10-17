@@ -1,0 +1,29 @@
+{
+  "loopBranch": "perf/loop",
+  "copyFiles": [],
+  "setup": [],
+  "preflight": [],
+  "checks": { "beforeBuild": [], "afterBuild": ["./gradlew test"] },
+  "build": "./gradlew bootJar -x test",
+  "server": {
+    "start": "java -jar $(ls build/libs/*.jar | grep -v -- -plain.jar | head -1) --server.port={port}",
+    "port": 3100,
+    "readyPath": "/actuator/health",
+    "readyTimeoutSec": 120
+  },
+  "auth": { "cookieCmd": "PERF_USER=user PERF_PASS=password sh .claude/perf-loop/cookie.sh {port}" },
+  "measurer": { "type": "lighthouse", "runs": 3, "pages": [{ "path": "/", "auth": false }] },
+  "gate": { "type": "screenshots", "screens": [{ "path": "/", "auth": false }] },
+  "scope": {
+    "allow": [
+      "src/main/resources/templates/**",
+      "src/main/resources/static/**",
+      "src/main/resources/application*.yml",
+      "src/main/resources/application*.properties",
+      "src/main/java/**/config/**"
+    ],
+    "deny": ["src/test/**", "build.gradle*", "settings.gradle*", "pom.xml", "src/main/resources/db/**", "gradle/**"]
+  },
+  "thresholds": { "minGain": 1, "target": 90, "stallRounds": 5, "maxRounds": 20, "candidates": 3 },
+  "guide": ".claude/perf-loop/guide.md"
+}

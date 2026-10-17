@@ -1,0 +1,11 @@
+{
+  "name": "perf-loop-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "chrome-launcher": "1.2.2",
+    "lighthouse": "13.5.0",
+    "puppeteer-core": "25.13.0",
+    "sharp": "0.35.4"
+  }
+}

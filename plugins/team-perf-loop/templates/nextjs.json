@@ -1,0 +1,18 @@
+{
+  "loopBranch": "perf/loop",
+  "copyFiles": [".env", ".env.local"],
+  "setup": ["npm ci"],
+  "preflight": [],
+  "checks": { "beforeBuild": ["npm run lint"], "afterBuild": ["npx tsc --noEmit"] },
+  "build": "npm run build",
+  "server": { "start": "node_modules/.bin/next start -p {port}", "port": 3100, "readyPath": "/", "readyTimeoutSec": 60 },
+  "auth": null,
+  "measurer": { "type": "lighthouse", "runs": 3, "pages": [{ "path": "/", "auth": false }] },
+  "gate": { "type": "screenshots", "screens": [{ "path": "/", "auth": false }] },
+  "scope": {
+    "allow": ["src/components/**", "src/app/**/page.tsx", "src/app/**/layout.tsx", "src/app/**/loading.tsx", "src/app/globals.css", "next.config.ts", "public/**"],
+    "deny": ["src/app/api/**", "**/*.test.*", "**/.env*", "package.json", "package-lock.json"]
+  },
+  "thresholds": { "minGain": 1, "target": 90, "stallRounds": 5, "maxRounds": 20, "candidates": 3 },
+  "guide": ".claude/perf-loop/guide.md"
+}

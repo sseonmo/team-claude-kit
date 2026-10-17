@@ -1,0 +1,20 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; color: #1f2933; background: #f7f8fa; }
+.nav { display: flex; gap: 16px; padding: 16px 24px; background: #1f2933; }
+.nav a { color: #e4e7eb; text-decoration: none; }
+.nav .brand { font-weight: 700; margin-right: auto; }
+.container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+.lead { font-size: 18px; color: #52606d; }
+.hero, .banner { width: 100%; border-radius: 12px; }
+.banner { max-height: 160px; object-fit: cover; }
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 24px 0; }
+.card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.card h2 { font-size: 18px; margin: 0 0 8px; }
+.button { display: inline-block; padding: 12px 20px; background: #3e7bfa; color: #fff; border-radius: 8px; text-decoration: none; }
+.table { width: 100%; border-collapse: collapse; background: #fff; }
+.table th, .table td { padding: 10px 12px; border-bottom: 1px solid #e4e7eb; text-align: left; }
+.table .num { text-align: right; }
+.bars { list-style: none; padding: 0; }
+.bars li { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.bars .label { width: 80px; }
+.bars .bar { display: inline-block; height: 16px; background: #3e7bfa; border-radius: 4px; }

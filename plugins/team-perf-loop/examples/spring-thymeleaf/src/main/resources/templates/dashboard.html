@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/head :: head('대시보드')}"></head>
+<body>
+<div th:replace="~{fragments/nav :: nav}"></div>
+<main class="container">
+  <h1>대시보드</h1>
+  <p class="total">이번 달 합계 <strong th:text="${#numbers.formatInteger(total, 1, 'COMMA')} + '원'">0원</strong></p>
+  <img src="/img/hero.png" alt="" class="banner">
+  <table class="table">
+    <thead><tr><th>내역</th><th>분류</th><th>금액</th></tr></thead>
+    <tbody>
+      <tr th:each="r : ${rows}">
+        <td th:text="${r.name}">이름</td>
+        <td th:text="${r.category}">분류</td>
+        <td class="num" th:text="${#numbers.formatInteger(r.amount, 1, 'COMMA')}">0</td>
+      </tr>
+    </tbody>
+  </table>
+</main>
+</body>
+</html>

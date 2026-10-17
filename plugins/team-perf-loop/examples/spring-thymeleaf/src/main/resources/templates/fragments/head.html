@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="perf-loop 검증용 샘플 가계부">
+  <title th:text="${title}">sample</title>
+  <!-- 일부러 느리게: 모든 페이지가 큰 CSS·JS 를 head 에서 동기로 싣는다 -->
+  <link rel="stylesheet" href="/css/vendor.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/vendor.js"></script>
+</head>
+</html>

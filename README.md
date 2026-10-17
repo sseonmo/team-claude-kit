@@ -12,6 +12,7 @@
 | **team-handoff** | `/clear` 를 건너뛰는 작업 인계 — `/handoff` 하나로 저장·재개 |
 | **team-plan-verify** | 계획을 네 관점(사용자·엔지니어·실패/보안·과잉)으로 순차 검증 — `/plan-verify` |
 | **team-security-scan** | OWASP Top 10:2025 보안 감사 — `owasp-scan` 스킬, 검증 통과분만 담은 HTML 리포트 |
+| **team-perf-loop** | 측정 기반 자율 최적화 루프 — `/perf-loop-init` + `/perf-loop`, 후보 3개 중 기준선보다 나은 최고 1개만 keep |
 
 ## 설치
 
@@ -27,6 +28,7 @@
 /plugin install team-handoff@team-kit
 /plugin install team-plan-verify@team-kit
 /plugin install team-security-scan@team-kit
+/plugin install team-perf-loop@team-kit
 ```
 
 private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub 접근 권한과
@@ -53,7 +55,8 @@ private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub �
     "team-push-gate@team-kit": true,
     "team-handoff@team-kit": true,
     "team-plan-verify@team-kit": true,
-    "team-security-scan@team-kit": true
+    "team-security-scan@team-kit": true,
+    "team-perf-loop@team-kit": true
   }
 }
 ```
@@ -199,6 +202,21 @@ A01~A10 을 서브에이전트 열 개로 나눠 훑고, `critical`·`high` 는 
 **코드는 고치지 않는다.** 산출물은 리포트이고, 수정은 별도 작업으로 한다.
 못 돌린 도구는 리포트에 배너로 남는다 — **도구가 조용한 영역은 깨끗한 영역이 아니다**(실측 커버리지 약 1/3).
 조립 스크립트는 Python 3 stdlib only.
+
+### team-perf-loop
+
+```
+/perf-loop-init      # 프로젝트당 1회 — 설정 초안·도구 설치·벤치·실증
+/perf-loop 3         # 한 회차 — 기준선 재측정 + 3라운드
+```
+
+라운드마다 후보 에이전트 3개가 각자 worktree 에서 **변경 하나씩**을 만들고, 엔진이 하나씩
+빌드·검사·스크린샷 관문·Lighthouse 측정을 해 기준선보다 나은 최고 1개만 루프 브랜치에 keep 한다.
+**판정은 LLM 이 하지 않는다**(순수 함수). 병합·push 는 하지 않는다.
+
+Spring Boot + Thymeleaf·Next.js 설정 초안을 init 이 만든다. 측정 도구(lighthouse·puppeteer-core·sharp)는
+`~/.cache/perf-loop/tools` 에 머신당 한 번 설치한다. 화면이 없는 백엔드·배치는 아직 측정기가 없다(2단계).
+설계: `docs/specs/2026-10-11-team-perf-loop-design.md`.
 
 ## 참고 문서
 
