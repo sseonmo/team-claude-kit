@@ -148,3 +148,13 @@ for (const [key, label] of [['diff.mnemonicPrefix', 'mnemonicPrefix'], ['diff.no
     assert.deepEqual(d.added, [2])
   }))
 }
+
+test('사용자 설정(srcPrefix·color=always)에도 경로를 바르게 읽는다', withRepo(dir => {
+  commit(dir, { 'a.js': lines(3) }, 'init')
+  git(['config', 'diff.srcPrefix', 'src/'], dir)
+  git(['config', 'color.ui', 'always'], dir)
+  writeFileSync(path.join(dir, 'a.js'), lines(3, i => (i === 2 ? 'x' : `l${i}`)))
+  const d = one(dir)
+  assert.equal(d.path, 'a.js')
+  assert.deepEqual(d.added, [2])
+}))
