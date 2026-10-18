@@ -269,3 +269,68 @@ test('과거의 새 문제 표가 있는 발견도 사용자가 보류한 뒤에
   const { carried } = applyHistory([], record, candidates, reader(code))
   assert.deepEqual(convergence(record, carried, [], candidates), { resolved: 0, fresh: 0, conflicts: 0, skipped: 1, unchecked: 0 })
 })
+
+function modifiedDecision(t) {
+  const root = makeRepo()
+  t.after(() => removeRepo(root))
+  commit(root, { 'billing.js': code.join('\n') + '\n' }, '원본')
+  const changed = code.with(3, '  return safeTotal(order);')
+  const rejected = finding('R1-3', code, 4, { loc: loc(4, 'old') })
+  const adopted = finding('R2-1', changed, 4, { title: '안전한 합계 사용' })
+  const record = recordOf(rejected)
+  record.rounds.push({ n: 2, findings: [adopted], conflicts: [{ newId: adopted.id, priorId: rejected.id }] })
+  applySkip(record, rejected.id, '새 코드 유지')
+  const state = lines => {
+    writeFileSync(path.join(root, 'billing.js'), lines.join('\n') + '\n')
+    const diff = execFileSync('git', ['-c', 'core.quotePath=false', 'diff'], { cwd: root, encoding: 'utf8' })
+    const scope = buildScope(parseDiff(diff))
+    const readLines = (file, side) => file === 'billing.js' ? side === 'old' ? code : lines : []
+    return { scope, readLines, candidates: priorCandidates(record, scope, readLines) }
+  }
+  return { record, rejected, adopted, changed, state }
+}
+
+test('실제 수정 hunk 양쪽이 대응되어도 채택한 new 코드를 고정하고 왕복을 접는다', t => {
+  const { record, rejected, adopted, changed, state } = modifiedDecision(t)
+  const { scope, readLines, candidates } = state(changed)
+  const [raw] = attachPriors([current({ title: '합계 보정 제거', loc: loc(4), votes: [vote('round_trip'), vote('round_trip')] })], candidates, scope)
+  assert.equal(raw.priorId, adopted.id)
+  const settled = settleFinding(raw)
+  settled.id = 'R3-1'
+  const result = applyHistory([settled], record, candidates, readLines)
+  assert.deepEqual(result.conflicts, [])
+  assert.deepEqual(result.findings[0].folded, { byId: rejected.id, memo: '새 코드 유지', reason: 'R1-3 기각에 따름' })
+  assert.deepEqual(record.skips[rejected.id].snapshot, makeAnchor(changed, 4))
+  assert.deepEqual(result.carried, [])
+})
+
+test('old 기각 id 를 이월하되 채택한 new 위치를 사용하고 new 코드 수정 시 보류를 푼다', t => {
+  const { record, rejected, adopted, changed, state } = modifiedDecision(t)
+  const first = state(changed)
+  const carried = applyHistory([], record, first.candidates, first.readLines).carried
+  assert.equal(carried.length, 1)
+  assert.equal(carried[0].id, rejected.id)
+  assert.equal(carried[0].title, rejected.title)
+  assert.deepEqual(carried[0].loc, loc(4, 'new'))
+  assert.equal(carried[0].anchor.text, changed[3])
+  const again = state(changed)
+  assert.equal(applyHistory([], record, again.candidates, again.readLines).carried.length, 1)
+  const revised = changed.with(3, '  return revisedTotal(order);')
+  const next = state(revised)
+  const newFinding = current({ id: 'R4-1', priorId: adopted.id, conflict: { priorId: adopted.id }, anchor: makeAnchor(revised, 4), title: '수정된 합계 보정 제거' })
+  const released = applyHistory([newFinding], record, next.candidates, next.readLines)
+  assert.equal(record.skips[rejected.id], undefined)
+  assert.equal(released.findings[0].folded, undefined)
+  assert.deepEqual(released.conflicts, [{ newId: 'R4-1', priorId: adopted.id }])
+  assert.deepEqual(released.carried, [])
+})
+
+test('채택한 new 쪽이 범위 밖이면 대응되는 old 기각 줄로 결정을 굳히지 않는다', t => {
+  const { record, rejected, changed, state } = modifiedDecision(t)
+  const { scope, readLines } = state(changed)
+  scope.get('billing.js').added = []
+  const candidates = priorCandidates(record, scope, readLines)
+  const result = applyHistory([], record, candidates, readLines)
+  assert.deepEqual(result.carried, [])
+  assert.equal(record.skips[rejected.id].snapshot, null)
+})

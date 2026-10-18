@@ -60,11 +60,9 @@ export function priorCandidates(record, scope, readLines) {
     if (seen.has(prior.id)) continue
     seen.add(prior.id)
     const skip = record.skips[prior.id]
-    let match = correspond(prior, skip?.snapshot ?? prior.anchor)
-    if (!match && skip?.adopted) {
-      const adopted = byId.get(skip.adopted)
-      match = correspond(adopted, skip.snapshot ?? adopted?.anchor)
-    }
+    // 기각한 쪽의 old 코드는 계속 남을 수 있다. 결정의 수명은 채택한 쪽 코드로 판단한다.
+    const source = skip?.adopted ? byId.get(skip.adopted) : prior
+    const match = correspond(source, skip?.snapshot ?? source?.anchor)
     if (match) candidates.push({ prior, ...match })
   }
   return candidates
