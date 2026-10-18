@@ -113,6 +113,11 @@ export function applyHistory(findings, record, candidates, readLines) {
     if (finding.verification === 'refuted') return finding
     for (const [id, { skip, candidate }] of active) {
       if (newProblem(finding) || !contains(candidate.hunk, finding.loc)) continue
+      // 재사용한 채택 항목은 충돌만 풀고 활성 발견으로 남긴다. 기각 항목은 이월한다.
+      if (finding.id === skip.adopted && finding.conflict?.priorId === id) {
+        delete finding.conflict
+        continue
+      }
       const decision = finding.conflict && skip.adopted === finding.conflict.priorId
       if (decision || sameIssue(finding, candidate.prior)) {
         if (!finding.folded || decision) finding.folded = folded(id, skip, decision)

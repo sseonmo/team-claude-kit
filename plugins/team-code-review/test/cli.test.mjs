@@ -323,6 +323,49 @@ test('실제 old 기각·new 채택 회차는 반대편 왕복을 접고 채택 
   assert.deepEqual(f.record().rounds[4].conflicts, [{ newId: 'R5-1', priorId: 'R2-1' }])
 })
 
+test('이전 충돌 id 를 skip 한 즉시 재사용하면 채택한 major 와 payload 를 활성화한다', t => {
+  const f = fixture(t)
+  git(f.root, 'checkout', '-q', '-b', 'feature')
+  commit(f.root, { 'a.js': text }, 'feature'); f.pr()
+  f.run(['prepare', '--comment'])
+  f.settle(workflow(finding({ title: '이전 판단', loc: { path: 'a.js', side: 'old', line: 3 } })))
+  f.run(['prepare', '--comment', '--fresh'])
+  const adopted = finding({ title: '채택한 검사 추가', fix: 'validateChosen()', priorId: 'R1-1', votes: finding().votes.map(vote => ({ ...vote, relation: 'round_trip' })) })
+  const conflict = f.settle(workflow(adopted))
+  assert.match(conflict.rendered, /## 판단 충돌/)
+  assert.equal(conflict.verdict, 'Approve')
+  assert.equal(f.run(['skip', 'R1-1', '새 판단 채택']).ok, true)
+  const recordFile = path.join(f.metadata, 'feature.json')
+  assert.equal(json(recordFile).skips['R1-1'].adopted, 'R2-1')
+  let firstPayload, firstRendered
+  for (let repeat = 0; repeat < 2; repeat++) {
+    const reused = f.run(['prepare', '--comment'])
+    assert.equal(reused.status, 'reuse')
+    assert.match(reused.reuse.rendered, /판정: Changes Requested/)
+    assert.match(reused.reuse.rendered, /🟠 1/)
+    assert.doesNotMatch(reused.reuse.rendered, /## 판단 충돌/)
+    assert.match(reused.reuse.rendered, /보류됨 · R1-1/)
+    assert.doesNotMatch(reused.reuse.rendered, /보류됨 · R2-1/)
+    assert.match(reused.reuse.rendered, /validateChosen\(\)/)
+    const payload = json(reused.reuse.payloadPath)
+    assert.match(payload.body, /판정: Changes Requested/)
+    assert.doesNotMatch(payload.body, /## 판단 충돌/)
+    assert.equal(payload.comments.length, 1)
+    assert.match(payload.comments[0].body, /R2-1 채택한 검사 추가/)
+    assert.match(payload.comments[0].body, /validateChosen\(\)/)
+    const fallback = json(reused.reuse.fallbackPath)
+    assert.deepEqual(fallback.comments, [])
+    assert.match(fallback.body, /validateChosen\(\)/)
+    assert.doesNotMatch(fallback.body, /## 판단 충돌/)
+    if (repeat === 0) { firstPayload = payload; firstRendered = reused.reuse.rendered }
+    else { assert.deepEqual(payload, firstPayload); assert.equal(reused.reuse.rendered, firstRendered) }
+  }
+  // 판단 선택은 구현을 고치지 않는다. 채택한 수정안은 여전히 필요한 활성 major 다.
+  assert.equal(readFileSync(path.join(f.root, 'a.js'), 'utf8'), text)
+  assert.equal(json(recordFile).rounds.length, 2)
+  assert.equal(readFileSync(path.join(f.metadata, 'runs.tsv'), 'utf8').trim().split('\n').length, 3)
+})
+
 test('실제 이전 회차 anchor 는 prior hunk·충돌 상세·보류·변경 해제를 연결한다', t => {
   const f = fixture(t)
   f.change(); f.run(['prepare']); f.settle()
