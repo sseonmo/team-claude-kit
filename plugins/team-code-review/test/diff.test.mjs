@@ -136,3 +136,15 @@ test('isLockfile', () => {
   assert.equal(isLockfile('lock.java'), false)
   assert.equal(isLockfile('src/mypackage-lock.json.js'), false)
 })
+
+for (const [key, label] of [['diff.mnemonicPrefix', 'mnemonicPrefix'], ['diff.noprefix', 'noprefix']]) {
+  test(`${label} 설정이 켜져 있어도 경로를 바로 읽는다`, withRepo(dir => {
+    commit(dir, { 'f.txt': 'a\nb\n' }, 'init')
+    git(['config', key, 'true'], dir)
+    writeFileSync(path.join(dir, 'f.txt'), 'a\nc\n')
+    const d = one(dir)
+    assert.equal(d.path, 'f.txt')
+    assert.equal(d.oldPath, 'f.txt')
+    assert.deepEqual(d.added, [2])
+  }))
+}
