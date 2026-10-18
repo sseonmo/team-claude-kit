@@ -28,3 +28,13 @@ test('allowFail 이면 실패 시 null, 아니면 던진다', () => {
     assert.throws(() => git(['rev-parse', '--git-dir'], dir))
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+test('okCodes 에 든 종료 코드는 stdout 을 돌려준다', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cr-git-'))
+  try {
+    writeFileSync(path.join(dir, 'a.txt'), 'x\n')
+    const args = ['diff', '--no-index', '--', '/dev/null', 'a.txt']
+    assert.throws(() => git(args, dir))
+    assert.equal(git(args, dir, { allowFail: true }), null)
+    assert.match(git(args, dir, { okCodes: [1] }), /^diff --git a\/a\.txt b\/a\.txt/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
