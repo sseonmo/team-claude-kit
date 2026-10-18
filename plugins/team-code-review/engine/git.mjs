@@ -7,9 +7,15 @@ import path from 'node:path'
 // allowFail 이면 실패 시 null, 아니면 예외를 던진다.
 // okCodes 에 든 종료 코드는 성공으로 보고 stdout 을 돌려준다 (예: git diff --no-index 는 차이가 있으면 1).
 export function git(args, cwd, opts = {}) {
+  // -c 설정 뒤에 오는 실제 하위 명령만 확인한다. 경로 인수의 diff 는 건드리지 않는다.
+  let commandIndex = 0
+  while (args[commandIndex] === '-c') commandIndex += 2
+  const safeArgs = args[commandIndex] === 'diff'
+    ? [...args.slice(0, commandIndex + 1), '--no-ext-diff', '--no-textconv', ...args.slice(commandIndex + 1)]
+    : args
   try {
     return execFileSync('git', ['-c', 'core.quotePath=false', '-c', 'diff.mnemonicPrefix=false', '-c', 'diff.noprefix=false',
-      '-c', 'diff.srcPrefix=a/', '-c', 'diff.dstPrefix=b/', '-c', 'color.ui=false', '-c', 'color.diff=false', ...args], {
+      '-c', 'diff.srcPrefix=a/', '-c', 'diff.dstPrefix=b/', '-c', 'color.ui=false', '-c', 'color.diff=false', ...safeArgs], {
       cwd,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

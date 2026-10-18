@@ -158,3 +158,28 @@ test('사용자 설정(srcPrefix·color=always)에도 경로를 바르게 읽는
   assert.equal(d.path, 'a.js')
   assert.deepEqual(d.added, [2])
 }))
+
+for (const header of [
+  'x/foo y/foo', 'a/foo y/foo', 'x/foo b/foo',
+  '"x/foo" "b/foo"', '"a/foo" "y/foo"',
+  '"a/foo" "b/foo', '"a/foo" "b/foo" trailing',
+  'a/ b/',
+]) {
+  test(`잘못된 diff 헤더 거부: ${header}`, () => {
+    assert.throws(() => parseDiff(`diff --git ${header}\n`), /잘못된 diff 헤더/)
+  })
+}
+
+test('혼합 따옴표·공백·이름 변경 헤더', () => {
+  for (const header of ['a/old name b/new name', '"a/old\\tname" b/new name', 'a/old name "b/new\\tname"']) {
+    const [file] = parseDiff(`diff --git ${header}\nrename from old name\nrename to new name\n`)
+    assert.equal(file.oldPath, 'old name')
+    assert.equal(file.path, 'new name')
+  }
+})
+
+test('no-index 한글·공백·따옴표 경로를 보존한다', withRepo(dir => {
+  const names = ['한 글.java', 'quoted"name.java']
+  for (const name of names) writeFileSync(path.join(dir, name), 'new\n')
+  assert.deepEqual(untrackedDiff(dir, names).map(f => f.path), names)
+}))

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { git } from '../engine/git.mjs'
 import { selectTarget, defaultBranch, collectTarget } from '../engine/target.mjs'
@@ -157,3 +157,29 @@ test('바이너리는 범위에서 뺀다', withRepo(dir => {
   writeFileSync(path.join(dir, 'img.png'), Buffer.from([0, 1, 2, 0, 255, 0]))
   assert.deepEqual(collectTarget(dir, {}, []).files, [])
 }))
+
+for (const driver of ['external', 'textconv']) {
+  test(`설정된 ${driver} 실행 없이 원본 diff 수집`, withRepo(dir => {
+    commit(dir, { '.gitattributes': '*.js diff=unsafe\n', 'a.js': 'check();\nwork();\n' }, 'init')
+    // 실행되면 표식을 남기고 diff 결과를 숨기는 드라이버.
+    write(dir, 'driver.sh', '#!/bin/sh\necho ran > driver-ran\nprintf "hidden\\n"\n')
+    const command = 'sh ./driver.sh'
+    git(['config', driver === 'external' ? 'diff.external' : 'diff.unsafe.textconv', command], dir)
+    write(dir, 'a.js', 'work();\n')
+    git(['add', 'a.js'], dir)
+    write(dir, 'a.js', 'check();\nwork();\n')
+    write(dir, 'new.js', 'new();\n')
+    const t = collectTarget(dir, {}, ['a.js', 'new.js'])
+    assert.deepEqual(t.indexOnly, ['a.js'])
+    assert.deepEqual(t.files.map(f => f.path), ['new.js'])
+    assert.equal(t.changedLines, 1)
+    assert.match(t.stagedText, /-check\(\);/)
+    assert.match(t.untrackedText, /\+new\(\);/)
+    assert.equal(existsSync(path.join(dir, 'driver-ran')), false)
+    write(dir, 'a.js', 'changed();\nwork();\n')
+    const changed = collectTarget(dir, {}, ['a.js', 'new.js'])
+    assert.deepEqual(changed.files.map(f => f.path), ['a.js', 'new.js'])
+    assert.equal(changed.changedLines, 3)
+    assert.equal(existsSync(path.join(dir, 'driver-ran')), false)
+  }))
+}

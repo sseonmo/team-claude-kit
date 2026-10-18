@@ -20,23 +20,41 @@ function unquote(s) {
   return Buffer.from(bytes).toString('utf8')
 }
 
-const stripPrefix = p => p.replace(/^[ab]\//, '')
-
-// `diff --git a/X b/Y` 헤더에서 경로 쌍을 뽑는다. 이름 변경이 아니면 X == Y 라서
-// 공백이 든 경로도 가운데를 잘라 알 수 있다. 이름 변경은 rename from/to 줄이 덮어쓴다.
+// 공백 경로는 양쪽 동일 이름을 먼저 찾고, 이름 변경은 rename from/to 가 덮어쓴다.
 function headerPaths(rest) {
-  if (rest.startsWith('"')) {
-    // 따옴표로 시작하는 첫 경로의 끝(이스케이프 아닌 닫는 따옴표)을 찾는다
+  const invalid = () => { throw new Error(`잘못된 diff 헤더: ${rest}`) }
+  const quoted = value => {
+    if (!value.startsWith('"')) return null
     let i = 1
-    while (i < rest.length && rest[i] !== '"') i += rest[i] === '\\' ? 2 : 1
-    return [unquote(rest.slice(0, i + 1)), unquote(rest.slice(i + 2))].map(stripPrefix)
+    while (i < value.length && value[i] !== '"') i += value[i] === '\\' ? 2 : 1
+    if (i >= value.length) invalid()
+    return { path: unquote(value.slice(0, i + 1)), end: i + 1 }
   }
-  const m = rest.match(/^(a\/.*) (b\/.*)$/)
-  const mid = (rest.length - 1) / 2
-  if (rest[mid] === ' ' && rest.slice(2, mid) === rest.slice(mid + 3)) {
-    return [rest.slice(0, mid), rest.slice(mid + 1)].map(stripPrefix)
+  let oldPath, newPath
+  const first = quoted(rest)
+  if (first) {
+    if (rest[first.end] !== ' ') invalid()
+    oldPath = first.path
+    const tail = rest.slice(first.end + 1)
+    const second = quoted(tail)
+    if (second && second.end !== tail.length) invalid()
+    newPath = second ? second.path : tail
+  } else {
+    const mid = (rest.length - 1) / 2
+    if (rest[mid] === ' ' && rest.slice(2, mid) === rest.slice(mid + 3)) {
+      oldPath = rest.slice(0, mid)
+      newPath = rest.slice(mid + 1)
+    } else {
+      const match = rest.match(/^(a\/.*) ("b\/.*"|b\/.*)$/)
+      if (!match) invalid()
+      oldPath = match[1]
+      const second = quoted(match[2])
+      if (second && second.end !== match[2].length) invalid()
+      newPath = second ? second.path : match[2]
+    }
   }
-  return m ? [stripPrefix(m[1]), stripPrefix(m[2])] : [rest, rest]
+  if (!oldPath.startsWith('a/') || !newPath.startsWith('b/') || oldPath.length <= 2 || newPath.length <= 2) invalid()
+  return [oldPath.slice(2), newPath.slice(2)]
 }
 
 const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
