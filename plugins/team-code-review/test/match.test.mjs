@@ -290,6 +290,55 @@ function modifiedDecision(t) {
   return { record, rejected, adopted, changed, state }
 }
 
+function realPairedHunks(t) {
+  const root = makeRepo()
+  t.after(() => removeRepo(root))
+  const original = Array.from({ length: 28 }, (_, index) => `line ${index + 1}`)
+  commit(root, { 'billing.js': original.join('\n') + '\n' }, '원본')
+  const changed = original.with(3, 'changed four').with(21, 'changed twenty two')
+  writeFileSync(path.join(root, 'billing.js'), changed.join('\n') + '\n')
+  const scope = buildScope(parseDiff(execFileSync('git', ['diff'], { cwd: root, encoding: 'utf8' })))
+  const readLines = (file, side) => file === 'billing.js' ? side === 'old' ? original : changed : []
+  return { original, changed, scope, readLines }
+}
+
+test('실제 같은 hunk 양쪽을 연결하고 유효한 supplied priorId 를 보존한다', t => {
+  const { original, scope, readLines } = realPairedHunks(t)
+  const oldest = finding('R1-1', original, 4, { loc: loc(4, 'old') })
+  const newest = finding('R2-1', original, 4, { loc: loc(4, 'old') })
+  const separate = finding('R2-2', original, 22, { loc: loc(22, 'old') })
+  const record = recordOf(oldest)
+  record.rounds.push({ n: 2, findings: [newest, separate], conflicts: [] })
+  const candidates = priorCandidates(record, scope, readLines)
+  assert.deepEqual(candidates.find(candidate => candidate.prior.id === 'R1-1').hunk.paired,
+    { path: 'billing.js', side: 'new', start: 1, end: 7 })
+  const raws = [
+    current({ loc: loc(4), priorId: 'R1-1' }),
+    current({ loc: loc(4), priorId: 'R2-2' }),
+    current({ loc: loc(4), priorId: 'missing' }),
+    current({ loc: loc(4, 'old'), priorId: 'R1-1' }),
+    current({ loc: loc(1), priorId: 'R1-1' }),
+  ]
+  assert.deepEqual(attachPriors(raws, candidates, scope).map(raw => raw.priorId), ['R1-1', 'R2-1', 'R2-1', 'R1-1', null])
+  assert.equal(raws[0].priorId, 'R1-1')
+})
+
+test('실제 반대쪽 hunk 의 같은 보류를 접으며 수렴에서도 해결·새 문제로 세지 않는다', t => {
+  const { original, scope, readLines } = realPairedHunks(t)
+  const prior = finding('R1-1', original, 4, { loc: loc(4, 'old') })
+  const record = recordOf(prior)
+  applySkip(record, prior.id, '보류')
+  const candidates = priorCandidates(record, scope, readLines)
+  const raw = current({ loc: loc(4), votes: [vote('round_trip'), vote('round_trip')] })
+  const settled = settleFinding(attachPriors([raw], candidates, scope)[0])
+  settled.id = 'R2-1'
+  const result = applyHistory([settled], record, candidates, readLines)
+  assert.deepEqual(result.findings[0].folded, { byId: 'R1-1', memo: '보류', reason: 'R1-1 보류에 따름' })
+  assert.deepEqual(result.conflicts, [])
+  assert.deepEqual(result.carried, [])
+  assert.deepEqual(convergence(record, result.findings, [], candidates), { resolved: 0, fresh: 0, conflicts: 0, skipped: 1, unchecked: 0 })
+})
+
 test('실제 수정 hunk 양쪽이 대응되어도 채택한 new 코드를 고정하고 왕복을 접는다', t => {
   const { record, rejected, adopted, changed, state } = modifiedDecision(t)
   const { scope, readLines, candidates } = state(changed)

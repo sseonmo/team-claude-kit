@@ -54,6 +54,12 @@ export function priorCandidates(record, scope, readLines) {
     const loc = { path, side: finding.loc.side, line }
     if (!inScope(loc, scope)) return null
     const hunk = hunkOf(loc, scope)
+    if (hunk) {
+      const side = loc.side === 'old' ? 'new' : 'old'
+      const block = file.hunks.find(block => loc.line >= block[`${loc.side}Start`] && loc.line < block[`${loc.side}Start`] + block[`${loc.side}Lines`])
+      // 같은 실제 수정 hunk 의 반대쪽도 연결하되 빈 쪽에는 범위를 만들지 않는다.
+      if (block[`${side}Lines`] > 0) hunk.paired = { path, side, start: block[`${side}Start`], end: block[`${side}Start`] + block[`${side}Lines`] - 1 }
+    }
     return hunk ? { loc, hunk } : null
   }
   for (const prior of previous.toReversed()) {
@@ -68,10 +74,16 @@ export function priorCandidates(record, scope, readLines) {
   return candidates
 }
 
-const contains = (hunk, loc) => hunk.path === loc.path && hunk.side === loc.side && loc.line >= hunk.start && loc.line <= hunk.end
+const containsRange = (range, loc) => range && range.path === loc.path && range.side === loc.side && loc.line >= range.start && loc.line <= range.end
+const contains = (hunk, loc) => containsRange(hunk, loc) || containsRange(hunk.paired, loc)
 
 export function attachPriors(raws, candidates, scope) {
-  return raws.map(raw => ({ ...raw, priorId: inScope(raw.loc, scope) ? candidates.find(candidate => contains(candidate.hunk, raw.loc))?.prior.id ?? null : null }))
+  return raws.map(raw => {
+    const matching = inScope(raw.loc, scope) ? candidates.filter(candidate => contains(candidate.hunk, raw.loc)) : []
+    // 관계 투표는 특정 prior 에 대한 판단이므로 유효한 supplied id 를 보존한다.
+    const candidate = matching.find(candidate => candidate.prior.id === raw.priorId) ?? matching[0]
+    return { ...raw, priorId: candidate?.prior.id ?? null }
+  })
 }
 
 const newProblem = finding => finding.votes?.some(vote => vote.verdict === 'confirmed' && vote.relation === 'new_problem')

@@ -14,8 +14,9 @@ export function git(args, cwd, opts = {}) {
     ? [...args.slice(0, commandIndex + 1), '--no-ext-diff', '--no-textconv', ...args.slice(commandIndex + 1)]
     : args
   try {
-    return execFileSync('git', ['-c', 'core.quotePath=false', '-c', 'diff.mnemonicPrefix=false', '-c', 'diff.noprefix=false',
-      '-c', 'diff.srcPrefix=a/', '-c', 'diff.dstPrefix=b/', '-c', 'color.ui=false', '-c', 'color.diff=false', ...safeArgs], {
+    // status 의 선택적 갱신과 diff 의 자동 갱신 모두 막아 index 를 보존한다.
+    return execFileSync('git', ['--no-optional-locks', '-c', 'core.quotePath=false', '-c', 'diff.mnemonicPrefix=false', '-c', 'diff.noprefix=false',
+      '-c', 'diff.srcPrefix=a/', '-c', 'diff.dstPrefix=b/', '-c', 'color.ui=false', '-c', 'color.diff=false', '-c', 'diff.autoRefreshIndex=false', ...safeArgs], {
       cwd,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

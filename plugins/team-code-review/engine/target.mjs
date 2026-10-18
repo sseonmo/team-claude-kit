@@ -68,7 +68,7 @@ export function collectTarget(root, flags = {}, paths = []) {
 
   const diffText = git(['diff', baseSha, ...spec], root)
   const stagedText = git(['diff', '--cached', ...spec], root)
-  const untrackedPaths = git(['ls-files', '--others', '--exclude-standard', ...spec], root).split('\n').filter(Boolean)
+  const untrackedPaths = git(['ls-files', '-z', '--others', '--exclude-standard', ...spec], root).split('\0').filter(Boolean)
   const untrackedText = untrackedPaths
     .map(p => git(['diff', '--no-index', '--', '/dev/null', p], root, { okCodes: [1] }) ?? '')
     .join('')
