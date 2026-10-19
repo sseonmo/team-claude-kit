@@ -437,3 +437,41 @@ test('actual prepare → Workflow → settle preserves adopted judgment through 
   f.settle(await actualWorkflow(prepared.workflowArgs, [finding({ title: 'genuine new problem' })], 'new_problem'))
   assert.equal(f.record().rounds.at(-1).findings.find(item => item.id === 'R6-1').folded, undefined)
 })
+
+test('Workflow metadata types reject malformed handoff and retry original result without rerunning Workflow', async t => {
+  const f = fixture(t)
+  f.change()
+  const prepared = f.run(['prepare'])
+  const pending = readFileSync(prepared.pendingPath)
+  // Run the actual Workflow once; only its JSON handoff is retried below.
+  const original = await actualWorkflow(prepared.workflowArgs, [finding()])
+  const resultPath = path.join(f.metadata, 'workflow-result.json')
+  const mutations = [
+    ['cutoff', result => { result.cutoff = 'false' }],
+    ['tiebreaks', result => { result.tiebreaks = '0' }],
+    ['tiebreaks', result => { result.tiebreaks = -1 }],
+    ['tiebreaks', result => { result.tiebreaks = 0.5 }],
+    ['dimensions[0].failed', result => { result.dimensions[0].failed = 'false' }],
+  ]
+  for (const [field, mutate] of mutations) {
+    const malformed = structuredClone(original)
+    mutate(malformed)
+    writeFileSync(resultPath, JSON.stringify(malformed))
+    const rejected = f.run(['settle', '--result', resultPath], f.root, 1)
+    assert.equal(rejected.ok, false)
+    assert.ok(rejected.message.includes(field), rejected.message)
+    assert.match(rejected.message, /boolean|integer/)
+    assert.deepEqual(readFileSync(prepared.pendingPath), pending)
+    assert.equal(existsSync(path.join(f.metadata, 'main.json')), false)
+    assert.equal(existsSync(path.join(f.metadata, 'runs.tsv')), false)
+  }
+  writeFileSync(resultPath, JSON.stringify(original))
+  assert.equal(f.run(['settle', '--result', resultPath]).verdict, 'Changes Requested')
+  assert.equal(existsSync(prepared.pendingPath), false)
+  assert.equal(f.record().rounds.length, 1)
+  assert.equal(f.record().rounds[0].result.cutoff, false)
+  assert.equal(f.record().rounds[0].result.tiebreaks, 0)
+  const [header, row] = readFileSync(path.join(f.metadata, 'runs.tsv'), 'utf8').trim().split('\n').map(line => line.split('\t'))
+  assert.equal(row[header.indexOf('cap_hit')], '0')
+  assert.equal(row[header.indexOf('tiebreaks')], '0')
+})

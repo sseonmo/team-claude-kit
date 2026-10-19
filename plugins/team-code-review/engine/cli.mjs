@@ -183,7 +183,12 @@ function settle(root, flags) {
   if (pending.root !== root) throw new Error('prepare 를 실행한 저장소와 현재 저장소가 다릅니다.')
   const treeChanged = pending.treeHash !== treeHash(root)
   const result = JSON.parse(readFileSync(path.resolve(flags.result), 'utf8'))
-  if (!Array.isArray(result.dimensions) || result.dimensions.some(dimension => typeof dimension.key !== 'string' || !Array.isArray(dimension.findings))) throw new Error('WorkflowResult dimensions 형식이 올바르지 않습니다.')
+  if (!Array.isArray(result?.dimensions) || result.dimensions.some(dimension => typeof dimension?.key !== 'string' || !Array.isArray(dimension.findings))) throw new Error('WorkflowResult dimensions 형식이 올바르지 않습니다.')
+  if (typeof result.cutoff !== 'boolean') throw new Error('WorkflowResult.cutoff 는 JSON boolean 이어야 합니다.')
+  if (!Number.isInteger(result.tiebreaks) || result.tiebreaks < 0) throw new Error('WorkflowResult.tiebreaks 는 nonnegative integer 이어야 합니다.')
+  for (const [index, dimension] of result.dimensions.entries()) {
+    if (typeof dimension.failed !== 'boolean') throw new Error(`WorkflowResult.dimensions[${index}].failed 는 JSON boolean 이어야 합니다.`)
+  }
   const { target } = pending
   const scope = buildScope(target.files)
   const readLines = lineReader(root, target)
@@ -202,7 +207,7 @@ function settle(root, flags) {
   })
   const data = { findings, failedDims: result.dimensions.filter(dimension => dimension.failed).map(dimension => dimension.key),
     dropped, walkthrough: result.dimensions.map(dimension => dimension.walkthrough).filter(Boolean), praise: result.dimensions.map(dimension => dimension.praise).filter(Boolean),
-    tiebreaks: result.tiebreaks ?? 0, cutoff: Boolean(result.cutoff) }
+    tiebreaks: result.tiebreaks, cutoff: result.cutoff }
   const notices = [...pending.notices, ...(notice ? [notice] : [])]
   const detached = recordPath(root) === null
   if (detached) notices.push('detached HEAD 이므로 회차 기록과 실행 기록을 저장하지 않습니다.')
@@ -216,7 +221,7 @@ function settle(root, flags) {
     appendRun(root, { at: new Date().toISOString(), branch: pending.branch, mode: target.mode, files: target.files.length, lines: target.changedLines,
       seconds: Math.max(0, Math.round((Date.now() - Date.parse(pending.startedAt)) / 1000)), cap_hit: result.cutoff ? 1 : 0,
       unverified: [...review.history.findings, ...review.history.carried].filter(finding => finding.verification === 'unverified').length,
-      tiebreaks: result.tiebreaks ?? 0, verdict: review.verdict.verdict })
+      tiebreaks: result.tiebreaks, verdict: review.verdict.verdict })
   }
   unlinkSync(pendingOf(root))
   return { rendered, verdict: review.verdict.verdict, ...paths, treeChanged }
