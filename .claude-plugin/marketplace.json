@@ -101,7 +101,7 @@
     {
       "name": "team-code-review",
       "source": "./plugins/team-code-review",
-      "description": "여러 차원(정확성·보안·성능 등)으로 코드를 나눠 리뷰하고, 발견마다 검증자 투표로 반박을 거친 뒤 회차가 거듭될수록 수렴하도록 이전 발견과 대응시키는 코드 리뷰 스킬(/deep-review). 판정·투표 집계·범위 필터·회차 기록은 LLM 이 아니라 Node 엔진이 결정론적으로 처리하며, 리뷰는 파일을 수정하지 않는다. 빠른(--fast)·정밀(--deep) 모드와 PR 코멘트(--pr --comment)를 지원한다. 의존성 없음 — Node 내장 모듈만.",
+      "description": "정확성·보안·아키텍처·테스트 커버리지 네 차원으로 코드를 리뷰하고, 발견마다 검증자 투표를 거쳐 이전 회차와 대응시키는 코드 리뷰 스킬(/deep-review). 판정·투표 집계·범위 필터·회차 기록은 LLM 이 아니라 Node 엔진이 결정론적으로 처리하며, 리뷰는 파일을 수정하지 않는다. 빠른(--fast)·정밀(--deep) 모드와 요청 시 PR 코멘트(--comment)를 지원한다. 의존성 없음 — Node 내장 모듈만.",
       "version": "0.1.0",
       "author": { "name": "sseon", "email": "mo3509@gmail.com" },
       "category": "workflow",

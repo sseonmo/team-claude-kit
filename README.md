@@ -13,6 +13,7 @@
 | **team-plan-verify** | 계획을 네 관점(사용자·엔지니어·실패/보안·과잉)으로 순차 검증 — `/plan-verify` |
 | **team-security-scan** | OWASP Top 10:2025 보안 감사 — `owasp-scan` 스킬, 검증 통과분만 담은 HTML 리포트 |
 | **team-perf-loop** | 측정 기반 자율 최적화 루프 — `/perf-loop-init` + `/perf-loop`, 후보 3개 중 기준선보다 나은 최고 1개만 keep |
+| **team-code-review** | 정확성·보안·아키텍처·테스트 커버리지 리뷰 — `/deep-review`, 검증 투표와 회차 기록 |
 
 ## 설치
 
@@ -29,6 +30,7 @@
 /plugin install team-plan-verify@team-kit
 /plugin install team-security-scan@team-kit
 /plugin install team-perf-loop@team-kit
+/plugin install team-code-review@team-kit
 ```
 
 private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub 접근 권한과
@@ -56,7 +58,8 @@ private 레포이므로 팀원은 `sseonmo/team-claude-kit` 에 대한 GitHub �
     "team-handoff@team-kit": true,
     "team-plan-verify@team-kit": true,
     "team-security-scan@team-kit": true,
-    "team-perf-loop@team-kit": true
+    "team-perf-loop@team-kit": true,
+    "team-code-review@team-kit": true
   }
 }
 ```
@@ -217,6 +220,18 @@ A01~A10 을 서브에이전트 열 개로 나눠 훑고, `critical`·`high` 는 
 Spring Boot + Thymeleaf·Next.js 설정 초안을 init 이 만든다. 측정 도구(lighthouse·puppeteer-core·sharp)는
 `~/.cache/perf-loop/tools` 에 머신당 한 번 설치한다. 화면이 없는 백엔드·배치는 아직 측정기가 없다(2단계).
 설계: `docs/specs/2026-10-11-team-perf-loop-design.md`.
+
+### team-code-review
+
+```text
+/deep-review             # 정밀 리뷰
+/deep-review --fast      # 300초 빠른 리뷰
+/deep-review --pr        # PR 기준 diff 리뷰
+/deep-review --comment   # 명시적으로 요청한 경우에만 PR 리뷰 게시
+/deep-review --skip R1-1 # 발견 보류
+```
+
+Node.js 20+, Git, Claude Code Workflow 기능이 필요하다. `gh` 는 PR 조회·게시 때만 필요하다. 리뷰는 파일을 수정하거나 PR 을 만들지 않는다. 결과 재사용과 회차 기록 설명은 [플러그인 README](plugins/team-code-review/README.md)를 참조한다.
 
 ## 참고 문서
 
