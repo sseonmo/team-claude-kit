@@ -10,6 +10,17 @@
 
 **Spec:** `docs/specs/2026-10-18-team-code-review-design.md` (커밋 `ee30276`). 원형: FinSight `.claude/commands/review-code.md`, `.claude/workflows/review-code.js` (`/Users/guseonmo/Documents/study/ai_lecture/practice/part2_project_finsight`).
 
+## 실행 상태 (Codex 이어서 진행)
+
+- [x] Task 1~4: 기존 구현 복원, Task 4 독립 리뷰 및 diff 안전성 보완 완료.
+- [x] Task 5~14: 구현, 모듈별 TDD, 독립 리뷰 및 수정 완료. 전체 자동 테스트 153/153 통과.
+- [ ] Task 15: FinSight 원형/신규 실제 Workflow 비교와 수렴 실측. 실행 스크립트 준비 완료, 아직 미실행.
+- [ ] 전체 브랜치 최종 리뷰 및 발견 보완.
+
+실제 진행 이력·결정은 `.superpowers/sdd/2026-10-19-team-code-review/progress.md`에 있다. 아래 체크박스는 원래 실행 절차를 보존했다. 기존 Claude Task 4는 RED 실행 증거가 없으며, 이 공백을 사후 실행으로 대체했다고 주장하지 않는다. 이후 엔진 작업은 RED/GREEN 증거를 기록했다.
+
+---
+
 ## Global Constraints
 
 - 런타임 의존성 0 — Node 내장 모듈만. `package.json` 은 `"private": true` 와 `"test": "node --test test/*.test.mjs"` 만 둔다(team-tdd-kit 과 같은 형식).
