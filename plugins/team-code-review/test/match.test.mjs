@@ -394,3 +394,68 @@ test('refuted and folded descendants cannot displace active adopted prior', () =
   assert.equal(candidates[0].prior.id, 'R2-1')
   for (const priorId of [null, 'R1-1', 'R3-1', 'R3-2']) assert.equal(attachPriors([current({ priorId })], candidates, scope)[0].priorId, 'R2-1')
 })
+
+const importLine = '  supabaseModule ??= import("@/services/supabase");'
+const expandedImport = [
+  '  supabaseModule ??= import("@/services/supabase").catch((error: unknown) => {',
+  '    supabaseModule = null;', '    throw error;', '  });',
+]
+const loader = ['', 'function loadSupabase() {', importLine, '  return supabaseModule;', '}']
+const expandedLoader = [...loader.slice(0, 2), ...expandedImport, ...loader.slice(3)]
+
+test('expanded replacement retains prior, conflict and new_problem without changing locate', () => {
+  const prior = finding('R1-1', loader, 3)
+  const record = recordOf(prior)
+  const scope = scopeOf(expandedLoader)
+  const readLines = reader(expandedLoader)
+  assert.equal(locate(prior.anchor, expandedLoader), null)
+  const candidates = priorCandidates(record, scope, readLines)
+  assert.equal(candidates.length, 1)
+  assert.equal(candidates[0].loc.line, 3)
+  assert.deepEqual(convergence(record, [], [], candidates), { resolved: 1, fresh: 0, conflicts: 0, skipped: 0, unchecked: 0 })
+  for (const relation of ['round_trip', 'new_problem']) {
+    const attached = attachPriors([current({ loc: loc(5), title: 'different issue', votes: [vote(relation), vote(relation)] })], candidates, scope)[0]
+    assert.equal(attached.priorId, 'R1-1')
+    const result = applyHistory([{ ...settleFinding(attached), id: 'R2-1' }], record, candidates, readLines)
+    assert.equal(result.conflicts.length, relation === 'round_trip' ? 1 : 0)
+    assert.equal(result.findings[0].folded, undefined)
+  }
+})
+
+test('expanded replacement rejects duplicate, brace-only and distant bounds', () => {
+  const candidates = (original, changed, line = 3) => priorCandidates(recordOf(finding('R1-1', original, line)), scopeOf(changed), reader(changed))
+  assert.deepEqual(candidates(loader, [...expandedLoader, ...expandedLoader]), [])
+  // A repeated suffix inside the replacement creates two possible block ends.
+  assert.deepEqual(candidates(loader, [...expandedLoader.slice(0, 2), ...expandedImport, ...loader.slice(3), ...loader.slice(3)]), [])
+  assert.deepEqual(candidates(['', '{', 'old', '}', ''], ['', '{', 'one', 'two', '}', '']), [])
+  assert.deepEqual(candidates(loader, [...loader.slice(0, 2), ...Array.from({ length: 13 }, (_, i) => `unrelated ${i}`), ...loader.slice(3)]), [])
+})
+
+test('expanded replacement releases an already frozen skip snapshot', () => {
+  const record = recordOf(finding('R1-1', loader, 3))
+  record.skips['R1-1'] = { memo: 'defer', snapshot: makeAnchor(loader, 3) }
+  const candidates = priorCandidates(record, scopeOf(expandedLoader), reader(expandedLoader))
+  assert.equal(candidates.length, 1)
+  const result = applyHistory([], record, candidates, reader(expandedLoader))
+  assert.equal(record.skips['R1-1'], undefined)
+  assert.deepEqual(result.carried, [])
+})
+
+test('expanded replacement cannot bridge separate actual hunks', () => {
+  const scope = scopeOf(expandedLoader, [3, 4, 5, 6], [
+    { oldStart: 1, oldLines: 4, newStart: 1, newLines: 4 },
+    { oldStart: 5, oldLines: 1, newStart: 5, newLines: 4 },
+  ])
+  assert.deepEqual(priorCandidates(recordOf(finding('R1-1', loader, 3)), scope, reader(expandedLoader)), [])
+})
+
+test('single-line replacement preserves first and last line correspondence', () => {
+  for (const [original, changed, line] of [
+    [['old', 'context one', 'context two'], ['new', 'context one', 'context two'], 1],
+    [['context one', 'context two', 'old'], ['context one', 'context two', 'new'], 3],
+  ]) {
+    const candidates = priorCandidates(recordOf(finding('R1-1', original, line)), scopeOf(changed), reader(changed))
+    assert.equal(candidates.length, 1)
+    assert.equal(candidates[0].loc.line, line)
+  }
+})

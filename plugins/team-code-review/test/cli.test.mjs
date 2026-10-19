@@ -475,3 +475,22 @@ test('Workflow metadata types reject malformed handoff and retry original result
   assert.equal(row[header.indexOf('cap_hit')], '0')
   assert.equal(row[header.indexOf('tiebreaks')], '0')
 })
+
+test('real CLI prepare retains page.tsx prior after verified line expands to catch block', t => {
+  const before = Array.from({ length: 97 }, (_, i) => `// context ${i}`)
+  const original = [...before, '', 'function loadSupabase() {', '  supabaseModule ??= import("@/services/supabase");', '  return supabaseModule;', '}'].join('\n') + '\n'
+  const f = fixture(t, { 'page.tsx': '// base\n' })
+  f.change('page.tsx', original)
+  f.run(['prepare'])
+  f.settle(workflow(finding({ dimension: 'correctness', loc: { path: 'page.tsx', side: 'new', line: 100 }, title: 'cached rejection' })))
+  const expanded = original.replace('  supabaseModule ??= import("@/services/supabase");', [
+    '  supabaseModule ??= import("@/services/supabase").catch((error: unknown) => {',
+    '    supabaseModule = null;', '    throw error;', '  });',
+  ].join('\n'))
+  f.change('page.tsx', expanded)
+  const prepared = f.run(['prepare'])
+  assert.equal(prepared.status, 'run')
+  assert.equal(prepared.workflowArgs.priors.length, 1)
+  assert.equal(prepared.workflowArgs.priors[0].id, 'R1-1')
+  assert.equal(prepared.workflowArgs.priors[0].loc.line, 100)
+})

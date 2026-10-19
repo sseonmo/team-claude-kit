@@ -24,15 +24,24 @@ export function locate(anchor, lines) {
   return best
 }
 
-// 원문이 사라진 교체 줄은 두 줄 이상의 문맥이 완전히 일치하는 유일한 자리만 쓴다.
-// 빈 줄만 맞거나 옛 줄 번호만 같은 자리를 쓰면 무관한 지적을 숨길 수 있다.
-function replacementLine(anchor, lines) {
-  const context = [...anchor.before, ...anchor.after]
-  if (context.filter(text => clean(text).trim()).length < 2) return null
+// 원문 부재 시 전후 문맥이 유일하게 둘러싼 짧은 교체 블록만 대응한다.
+// 여러 줄 교체는 양쪽에 식별 가능한 문맥과 같은 실제 hunk 를 요구한다.
+function replacementLine(anchor, lines, file, side) {
+  const before = anchor.before.map(clean), after = anchor.after.map(clean)
+  const context = [...before, ...after]
+  if (context.filter(text => text.trim()).length < 2) return null
   const normalized = lines.map(clean)
+  const substantive = sequence => sequence.some(text => /[\p{L}\p{N}]/u.test(text))
+  const multiline = substantive(before) && substantive(after)
   const matches = []
   for (let i = 0; i < normalized.length; i++) {
-    if (contextScore(anchor, normalized, i) === context.length) matches.push(i + 1)
+    if (!before.every((text, offset) => normalized[i - before.length + offset] === text)) continue
+    for (let width = 1; width <= (multiline ? 12 : 1); width++) {
+      if (!after.every((text, offset) => normalized[i + width + offset] === text)) continue
+      if (width > 1 && !file.hunks.some(hunk => i + 1 >= hunk[`${side}Start`]
+        && i + width < hunk[`${side}Start`] + hunk[`${side}Lines`])) continue
+      matches.push(i + 1)
+    }
   }
   return matches.length === 1 ? matches[0] : null
 }
@@ -50,7 +59,7 @@ export function priorCandidates(record, scope, readLines) {
     if (!file) return null
     const path = file.status === 'D' ? file.oldPath : file.path
     const lines = readLines(path, finding.loc.side)
-    const line = locate(anchor, lines) ?? replacementLine(anchor, lines)
+    const line = locate(anchor, lines) ?? replacementLine(anchor, lines, file, finding.loc.side)
     const loc = { path, side: finding.loc.side, line }
     if (!inScope(loc, scope)) return null
     const hunk = hunkOf(loc, scope)
