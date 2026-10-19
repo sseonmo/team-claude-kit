@@ -28,17 +28,17 @@ export function selectTarget({ dirty, upstream, ahead, defaultBase, prBaseOid, f
   return pick('none', null, 'fast')
 }
 
-// staged 와 unstaged 가 서로 되돌리는 줄이 있는 파일 — 작업 트리는 HEAD 와 같아 보이지만 index 에만 변경이 있다.
-// staged 가 지운 줄을 unstaged 가 되살리거나(또는 그 반대) 하는 경우만 잡는다. 부분 stage 는 해당 없다.
-export function indexOnlyChanges(stagedDiff, unstagedDiff) {
-  const unstaged = new Map(unstagedDiff.map(f => [f.path, f]))
-  const hit = (a, b) => a.some(t => b.includes(t))
-  return stagedDiff
-    .filter(s => {
-      const u = unstaged.get(s.path)
-      return u && (hit(s.removedText, u.addedText) || hit(s.addedText, u.removedText))
-    })
-    .map(s => s.path)
+// staged added 와 unstaged removed 는 index 좌표, staged removed 와
+// HEAD→worktree removed 는 HEAD 좌표다. 파일 전체의 같은 텍스트는 취소 근거가 아니다.
+export function indexOnlyChanges(stagedDiff, unstagedDiff, headWorktreeDiff) {
+  const unstaged = new Map(unstagedDiff.map(file => [file.oldPath, file]))
+  const working = new Map(headWorktreeDiff.map(file => [file.oldPath, file]))
+  return stagedDiff.filter(staged => {
+    const removedFromIndex = new Set(unstaged.get(staged.path)?.removed ?? [])
+    const removedFromHead = new Set(working.get(staged.oldPath)?.removed ?? [])
+    return staged.added.some(line => removedFromIndex.has(line))
+      || staged.removed.some(line => !removedFromHead.has(line))
+  }).map(file => file.path)
 }
 
 // 대상을 모아 기준 커밋·diff·변경 줄 수·경고를 돌려준다. gh·fetch 는 부르지 않는다 (prBaseOid 는 호출자가 준다).
@@ -75,7 +75,9 @@ export function collectTarget(root, flags = {}, paths = []) {
 
   // 바이너리는 리뷰 범위에서 뺀다
   const files = [...parseDiff(diffText), ...untrackedDiff(root, untrackedPaths)].filter(f => f.status !== 'B')
-  const indexOnly = indexOnlyChanges(parseDiff(stagedText), parseDiff(git(['diff', ...spec], root)))
+  // PR/push base 와 무관하게 staged 삭제의 HEAD 좌표를 비교한다.
+  const headWorktreeText = baseSha === (headSha ?? EMPTY_TREE) ? diffText : git(['diff', headSha ?? EMPTY_TREE, ...spec], root)
+  const indexOnly = indexOnlyChanges(parseDiff(stagedText), parseDiff(git(['diff', ...spec], root)), parseDiff(headWorktreeText))
 
   // lockfile 은 줄 수 집계에서 뺀다 — 매번 경고가 뜨면 경고가 무시된다
   const changedLines = files.filter(f => !isLockfile(f.path)).reduce((n, f) => n + f.added.length + f.removed.length, 0)

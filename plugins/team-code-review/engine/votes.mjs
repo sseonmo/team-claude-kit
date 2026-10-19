@@ -44,7 +44,7 @@ export function settleFinding(raw) {
     finding.fixNote = unsafe.reason.trim().match(/^[\s\S]*?(?:[.!?。！？](?=\s|$)|\n|$)/)[0].trim()
   }
 
-  if (raw.priorId && (raw.assigned === 0 || (confirmations.length > 0 && confirmations.every(vote => vote.relation === 'round_trip')))) {
+  if (raw.priorId && ((raw.assigned === 0 && ['minor', 'nit'].includes(raw.severity)) || (confirmations.length > 0 && confirmations.every(vote => vote.relation === 'round_trip')))) {
     finding.conflict = { priorId: raw.priorId }
   }
   return finding

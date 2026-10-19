@@ -1,3 +1,4 @@
+import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync, execFileSync } from 'node:child_process'
@@ -384,7 +385,9 @@ test('실제 이전 회차 anchor 는 prior hunk·충돌 상세·보류·변경 
   assert.equal(folded.verdict, 'Approve')
   assert.equal(f.record().skips['R2-1'].snapshot.text, 'unsafe()')
   f.change('a.js', text.replace('unsafe()', 'different()'))
-  assert.equal(f.run(['prepare']).workflowArgs.priors.some(prior => prior.id === 'R2-1'), true)
+  const changedPriors = f.run(['prepare']).workflowArgs.priors
+  assert.equal(changedPriors.some(prior => prior.id === 'R2-1'), false)
+  assert.equal(changedPriors[0].id, 'R1-1')
   f.settle(workflow(finding()))
   assert.equal(f.record().skips['R2-1'], undefined)
 })
@@ -400,4 +403,37 @@ test('rename old 쪽 anchor 는 canonical 새 경로 대신 이전 base 경로�
   const repeated = f.run(['prepare', '--fresh'])
   assert.equal(repeated.workflowArgs.priors[0].hunk.path, 'renamed.js')
   assert.equal(repeated.workflowArgs.priors[0].loc.side, 'old')
+})
+
+async function actualWorkflow(args, findings, relation = 'round_trip') {
+  const source = readFileSync(new URL('../workflows/deep-review.js', import.meta.url), 'utf8')
+  const context = { args, setTimeout, clearTimeout, log: () => {},
+    parallel: jobs => Promise.all(jobs.map(job => job())),
+    pipeline: (items, review, verify) => Promise.all(items.map(async item => verify(await review(item), item))),
+    agent: async (prompt, config) => config.label.startsWith('review:')
+      ? { findings: config.label === 'review:security' ? findings : [], walkthrough: '', praise: '' }
+      : { verdict: 'confirmed', severity: 'major', reason: 'evidence', fixSafe: true, relation },
+  }
+  return JSON.parse(JSON.stringify(await vm.runInNewContext(`(async()=>{${source.replace('export const meta', 'const meta')}\n})()`, context)))
+}
+
+test('actual prepare → Workflow → settle preserves adopted judgment through fresh rounds', async t => {
+  const f = fixture(t)
+  f.change()
+  for (let n = 1; n <= 5; n++) {
+    const prepared = f.run(['prepare', '--fresh'])
+    if (n >= 3) assert.equal(prepared.workflowArgs.priors[0].id, 'R2-1')
+    const result = await actualWorkflow(prepared.workflowArgs, [finding({ title: `different judgment ${n}` })])
+    if (n >= 3) assert.equal(result.dimensions[1].findings[0].priorId, 'R2-1')
+    f.settle(result)
+    if (n === 2) f.run(['skip', 'R1-1', 'adopt R2'])
+    if (n >= 3) {
+      const round = f.record().rounds.at(-1)
+      assert.deepEqual(round.conflicts, [])
+      assert.equal(round.findings.find(item => item.id === `R${n}-1`).folded.byId, 'R1-1')
+    }
+  }
+  const prepared = f.run(['prepare', '--fresh'])
+  f.settle(await actualWorkflow(prepared.workflowArgs, [finding({ title: 'genuine new problem' })], 'new_problem'))
+  assert.equal(f.record().rounds.at(-1).findings.find(item => item.id === 'R6-1').folded, undefined)
 })

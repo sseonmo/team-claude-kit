@@ -79,7 +79,8 @@ function buildPrompt(d) {
   ].join('\n')
 }
 function priorFor(f) {
-  return (a.priors || []).slice().reverse().find(p => [p.hunk, p.hunk && p.hunk.paired].some(h => h && h.path === f.loc.path && h.side === f.loc.side && f.loc.line >= h.start && f.loc.line <= h.end)) || null
+  const matching = (a.priors || []).filter(p => p.authoritative !== false && [p.hunk, p.hunk && p.hunk.paired].some(h => h && h.path === f.loc.path && h.side === f.loc.side && f.loc.line >= h.start && f.loc.line <= h.end))
+  return matching.find(p => p.id === f.priorId) || matching[0] || null
 }
 function verifyPrompt(f, d, lens, prior) {
   return [

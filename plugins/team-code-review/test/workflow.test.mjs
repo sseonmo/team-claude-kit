@@ -1,3 +1,5 @@
+import { settleFinding } from '../engine/votes.mjs'
+import { computeVerdict } from '../engine/verdict.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -112,4 +114,23 @@ test('시간 상한은 미완료 reviewer 실패와 완료 발견 및 일부 표
 test('정밀 모드는 3/3/1/0, 전역 상한은 먼저 완료된 차원을 우선', async () => {
   const { result } = await run({ options: { votes: { critical: 3, major: 3, minor: 1, nit: 0 }, verifyCap: 2 }, responder: (p,c) => c.label.startsWith('review:') ? { ...empty(), findings: c.label === 'review:correctness' ? [finding('minor'), finding('nit', 30)] : c.label === 'review:security' ? [finding('major')] : c.label === 'review:architecture' ? [finding('critical')] : [] } : vote() })
   assert.deepEqual(result.dimensions.map(d => d.findings.map(f => f.assigned)), [[1,0],[3],[0],[]])
+})
+
+test('actual Workflow cap leaves major/critical active in verdict despite prior', async () => {
+  for (const severity of ['major', 'critical']) {
+    const prior = { id: 'R1-1', hunk: { path: 'a.js', side: 'new', start: 13, end: 30 } }
+    const { result } = await run({ findings: [finding(severity, 13), finding(severity, 30)], options: { verifyCap: 1, priors: [prior] },
+      responder: (p, c) => c.label.startsWith('review:') ? { ...empty(), findings: c.label === 'review:correctness' ? [finding(severity, 13), finding(severity, 30)] : [] } : vote('refuted') })
+    const findings = result.dimensions.flatMap(d => d.findings).map(settleFinding)
+    assert.equal(findings[1].verification, 'unverified')
+    assert.equal(findings[1].conflict, undefined)
+    assert.equal(computeVerdict({ findings, failedDims: [], indexOnly: [] }).verdict, severity === 'critical' ? 'Blocked' : 'Changes Requested')
+  }
+})
+
+test('Workflow uses supplied valid prior and otherwise prepared order', async () => {
+  const hunk = { path: 'a.js', side: 'new', start: 13, end: 30 }
+  const priors = [{ id: 'adopted', hunk }, { id: 'older-valid', hunk }, { id: 'folded', hunk, authoritative: false }]
+  const { result } = await run({ findings: [finding(), { ...finding('major', 30), priorId: 'older-valid' }], options: { priors } })
+  assert.deepEqual(result.dimensions[0].findings.map(f => f.priorId), ['adopted', 'older-valid'])
 })

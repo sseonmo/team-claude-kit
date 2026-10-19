@@ -73,7 +73,8 @@ test('확인 표의 위험한 fix 는 미검증에서도 제거하고 사유 첫
 test('관계는 확인 표 전부의 round_trip 합의와 priorId 를 요구한다', () => {
   const roundTrip = yes({ relation: 'round_trip' })
   assert.deepEqual(settleFinding(raw({ priorId: 'R1-1', votes: [roundTrip, roundTrip] })).conflict, { priorId: 'R1-1' })
-  assert.deepEqual(settleFinding(raw({ priorId: 'R1-1', assigned: 0 })).conflict, { priorId: 'R1-1' })
+  for (const severity of ['minor', 'nit']) assert.deepEqual(settleFinding(raw({ severity, priorId: 'R1-1', assigned: 0 })).conflict, { priorId: 'R1-1' })
+  for (const severity of ['major', 'critical']) assert.equal(settleFinding(raw({ severity, priorId: 'R1-1', assigned: 0 })).conflict, undefined)
   for (const finding of [raw({ votes: [roundTrip, roundTrip] }), raw({ priorId: 'R1-1', votes: [roundTrip, yes({ relation: 'new_problem' })] }), raw({ priorId: 'R1-1', votes: [roundTrip, yes()] }), raw({ priorId: 'R1-1', votes: [no(), no()] })]) {
     assert.equal(Object.hasOwn(settleFinding(finding), 'conflict'), false)
   }

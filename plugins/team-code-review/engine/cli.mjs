@@ -150,7 +150,7 @@ function prepare(root, cwd, flags, tokens) {
       reuse: { rendered: review.rendered, ...payloadFiles(root, flags, pr, review.input) } }
   }
   const workflowArgs = { root, mode: target.mode, base: target.baseSha, files: target.files, scopeText: scopeSummary(scope),
-    priors: candidates.map(({ prior, loc, hunk }) => ({ id: prior.id, dimension: prior.dimension, title: prior.title, tldr: prior.tldr, loc, hunk })),
+    priors: candidates.filter(candidate => candidate.authoritative !== false).map(({ prior, loc, hunk }) => ({ id: prior.id, dimension: prior.dimension, title: prior.title, tldr: prior.tldr, loc, hunk })),
     votes: MODES[target.mode].votes, verifyCap: VERIFY_CAP[target.mode], tiebreakMinSec: TIEBREAK_MIN_SEC, capSec: MODES[target.mode].capSec }
   writeJson(pendingPath, { root, branch: branchOf(root), startedAt: new Date().toISOString(), treeHash: treeHash(root), target, paths, flags, pr, notices, reuseKey: key })
   return { status: 'run', message: [...notices, `${target.files.length}개 파일 리뷰를 시작합니다.`].join('\n'), workflowArgs, pendingPath }

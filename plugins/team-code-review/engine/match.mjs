@@ -71,7 +71,15 @@ export function priorCandidates(record, scope, readLines) {
     const match = correspond(source, skip?.snapshot ?? source?.anchor)
     if (match) candidates.push({ prior, ...match })
   }
-  return candidates
+  // 보류 이월에는 기각 id 도 필요하지만 검증 판단의 기준으로 승격하지 않는다.
+  // 채택 판단은 이후 왕복·기각 회차보다 먼저 유지한다.
+  const adopted = new Set(Object.values(record.skips).map(skip => skip.adopted).filter(Boolean))
+  for (const candidate of candidates) {
+    const prior = candidate.prior
+    candidate.authoritative = prior.verification !== 'refuted' && !record.skips[prior.id]?.adopted
+      && (!prior.folded || Boolean(record.skips[prior.id]))
+  }
+  return candidates.sort((a, b) => Number(b.authoritative && adopted.has(b.prior.id)) - Number(a.authoritative && adopted.has(a.prior.id)))
 }
 
 const containsRange = (range, loc) => range && range.path === loc.path && range.side === loc.side && loc.line >= range.start && loc.line <= range.end
@@ -79,7 +87,7 @@ const contains = (hunk, loc) => containsRange(hunk, loc) || containsRange(hunk.p
 
 export function attachPriors(raws, candidates, scope) {
   return raws.map(raw => {
-    const matching = inScope(raw.loc, scope) ? candidates.filter(candidate => contains(candidate.hunk, raw.loc)) : []
+    const matching = inScope(raw.loc, scope) ? candidates.filter(candidate => candidate.authoritative !== false && contains(candidate.hunk, raw.loc)) : []
     // 관계 투표는 특정 prior 에 대한 판단이므로 유효한 supplied id 를 보존한다.
     const candidate = matching.find(candidate => candidate.prior.id === raw.priorId) ?? matching[0]
     return { ...raw, priorId: candidate?.prior.id ?? null }

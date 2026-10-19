@@ -183,3 +183,41 @@ for (const driver of ['external', 'textconv']) {
     assert.equal(existsSync(path.join(dir, 'driver-ran')), false)
   }))
 }
+
+test('separate Java hunks sharing braces and blanks are normal partial staging', withRepo(dir => {
+  const method = name => `  void ${name}() {\n    ${name}Work();\n  }\n\n`
+  const context = lines(15, i => `  // context ${i}`)
+  const body = 'class Account {\n' + context + method('old') + '}\n'
+  commit(dir, { 'Account.java': body }, 'base')
+  const staged = body.replace('class Account {\n', 'class Account {\n' + method('new'))
+  write(dir, 'Account.java', staged); git(['add', 'Account.java'], dir)
+  write(dir, 'Account.java', staged.replace(method('old'), ''))
+  assert.deepEqual(collectTarget(dir).indexOnly, [])
+}))
+
+test('separate Java staged deletion and unstaged addition sharing text are partial staging', withRepo(dir => {
+  const method = name => `  void ${name}() {\n    ${name}Work();\n  }\n\n`
+  const body = 'class Account {\n' + method('old') + lines(15, i => `  // context ${i}`) + '}\n'
+  commit(dir, { 'Account.java': body }, 'base')
+  const staged = body.replace(method('old'), '')
+  write(dir, 'Account.java', staged); git(['add', 'Account.java'], dir)
+  write(dir, 'Account.java', staged.replace('}\n', method('new') + '}\n'))
+  assert.deepEqual(collectTarget(dir).indexOnly, [])
+}))
+
+test('overwritten staged line is index-only even when text differs entirely', withRepo(dir => {
+  commit(dir, { 'a.js': 'base();\n' }, 'base')
+  write(dir, 'a.js', 'staged();\n'); git(['add', 'a.js'], dir)
+  write(dir, 'a.js', 'working();\n')
+  assert.deepEqual(collectTarget(dir).indexOnly, ['a.js'])
+}))
+
+test('PR comparison uses HEAD coordinates for restored staged deletion', withRepo(dir => {
+  const base = commit(dir, { 'a.js': lines(20) }, 'base')
+  git(['checkout', '-q', '-b', 'feature'], dir)
+  const head = 'prefix1\nprefix2\n' + lines(20)
+  commit(dir, { 'a.js': head }, 'shift HEAD')
+  write(dir, 'a.js', head.replace('l10\n', '')); git(['add', 'a.js'], dir)
+  write(dir, 'a.js', head)
+  assert.deepEqual(collectTarget(dir, { pr: true, prBaseOid: base }).indexOnly, ['a.js'])
+}))

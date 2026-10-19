@@ -383,3 +383,14 @@ test('채택한 new 쪽이 범위 밖이면 대응되는 old 기각 줄로 결�
   assert.deepEqual(result.carried, [])
   assert.equal(record.skips[rejected.id].snapshot, null)
 })
+
+test('refuted and folded descendants cannot displace active adopted prior', () => {
+  const record = recordOf(finding('R1-1'))
+  record.rounds.push({ n: 2, findings: [finding('R2-1', code, 4, { title: 'adopted' })], conflicts: [] })
+  record.skips['R1-1'] = { memo: 'adopt', snapshot: null, adopted: 'R2-1' }
+  record.rounds.push({ n: 3, findings: [finding('R3-1', code, 4, { folded: { byId: 'R1-1' } }), finding('R3-2', code, 4, { verification: 'refuted' })] })
+  const scope = scopeOf()
+  const candidates = priorCandidates(record, scope, reader(code))
+  assert.equal(candidates[0].prior.id, 'R2-1')
+  for (const priorId of [null, 'R1-1', 'R3-1', 'R3-2']) assert.equal(attachPriors([current({ priorId })], candidates, scope)[0].priorId, 'R2-1')
+})
