@@ -16,4 +16,7 @@ export const TIEBREAK_MIN_SEC = 27 // 남은 시간이 이보다 적으면 타�
 // 변경 줄 수 집계에서 빼는 생성 파일
 export const LOCKFILES = ['*.lock', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'gradle.lockfile']
 
+// 워크플로 에이전트 모델. 리뷰 1회 비용의 대부분이 에이전트 수 × 모델 단가라 세션 모델(Opus) 상속 대신 지정한다.
+export const AGENT_MODELS = { reviewer: 'sonnet', verifier: 'sonnet' }
+
 export const SEVERITY_RANK = { critical: 0, major: 1, minor: 2, nit: 3 }

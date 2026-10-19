@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync, lstatSy
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { git, repoRoot, commonDir } from './git.mjs'
-import { MODES, VERIFY_CAP, TIEBREAK_MIN_SEC, SEVERITY_RANK } from './config.mjs'
+import { MODES, VERIFY_CAP, TIEBREAK_MIN_SEC, SEVERITY_RANK, AGENT_MODELS } from './config.mjs'
 import { collectTarget } from './target.mjs'
 import { buildScope, scopeSummary, filterFindings } from './scope.mjs'
 import { settleFinding } from './votes.mjs'
@@ -151,7 +151,7 @@ function prepare(root, cwd, flags, tokens) {
   }
   const workflowArgs = { root, mode: target.mode, base: target.baseSha, files: target.files, scopeText: scopeSummary(scope),
     priors: candidates.filter(candidate => candidate.authoritative !== false).map(({ prior, loc, hunk }) => ({ id: prior.id, dimension: prior.dimension, title: prior.title, tldr: prior.tldr, loc, hunk })),
-    votes: MODES[target.mode].votes, verifyCap: VERIFY_CAP[target.mode], tiebreakMinSec: TIEBREAK_MIN_SEC, capSec: MODES[target.mode].capSec }
+    votes: MODES[target.mode].votes, verifyCap: VERIFY_CAP[target.mode], tiebreakMinSec: TIEBREAK_MIN_SEC, capSec: MODES[target.mode].capSec, models: AGENT_MODELS }
   writeJson(pendingPath, { root, branch: branchOf(root), startedAt: new Date().toISOString(), treeHash: treeHash(root), target, paths, flags, pr, notices, reuseKey: key })
   return { status: 'run', message: [...notices, `${target.files.length}개 파일 리뷰를 시작합니다.`].join('\n'), workflowArgs, pendingPath }
 }

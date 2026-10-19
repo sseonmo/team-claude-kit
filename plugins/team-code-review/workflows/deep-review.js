@@ -103,6 +103,11 @@ let stop
 const deadline = new Promise(resolve => { stop = resolve })
 const capTimer = setTimeout(() => { late = true; noTiebreak = true; stop(null) }, a.capSec * 1000)
 const tieTimer = setTimeout(() => { noTiebreak = true }, Math.max(0, a.capSec - a.tiebreakMinSec) * 1000)
+// 역할별 모델(엔진 config 의 AGENT_MODELS). 없으면 세션 모델을 상속한다.
+function withModel(config, role) {
+  const model = a.models && a.models[role]
+  return model ? { ...config, model } : config
+}
 async function bounded(prompt, config) {
   if (late) return null
   try { return await Promise.race([Promise.resolve().then(() => agent(prompt, config)), deadline]) }
@@ -119,7 +124,7 @@ async function verifyFinding(f, d, j) {
   tagged.assigned = n
   const schema = prior ? { ...VERDICT_SCHEMA, required: [...VERDICT_SCHEMA.required, 'relation'] } : VERDICT_SCHEMA
   const cast = async (lens, index) => {
-    const v = await bounded(verifyPrompt(f, d, lens, prior), { label: 'verify:' + d.key + '#' + j + '.' + index, phase: 'Verify', schema })
+    const v = await bounded(verifyPrompt(f, d, lens, prior), withModel({ label: 'verify:' + d.key + '#' + j + '.' + index, phase: 'Verify', schema }, 'verifier'))
     return v ? { ...v, relation: prior ? v.relation : null } : null
   }
   const lenses = n === 1 ? [LENSES.join('\n')] : n === 2 ? [LENSES[0] + '\n' + LENSES[2], LENSES[1] + '\n' + LENSES[2]] : LENSES.slice(0, n)
@@ -147,7 +152,7 @@ async function verifyDimension(r, d) {
 log('4개 차원 동시 리뷰: ' + DIMENSIONS.map(d => d.key).join(' · '))
 try {
   const dimensions = await pipeline(DIMENSIONS,
-    d => bounded(buildPrompt(d), { label: 'review:' + d.key, phase: 'Review', schema: FINDINGS_SCHEMA }),
+    d => bounded(buildPrompt(d), withModel({ label: 'review:' + d.key, phase: 'Review', schema: FINDINGS_SCHEMA }, 'reviewer')),
     (r,d) => verifyDimension(r,d))
   if (capped) log('검증 상한으로 ' + capped + '건 미검증')
   return { dimensions, tiebreaks, cutoff: late }

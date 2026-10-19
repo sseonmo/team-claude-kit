@@ -88,6 +88,7 @@ test('prepare → settle 은 기록·runs·범위 제외와 workflow 인수를 �
   assert.equal(prepared.workflowArgs.capSec, 480)
   assert.equal(prepared.workflowArgs.verifyCap, 16)
   assert.equal(prepared.workflowArgs.votes.major, 3)
+  assert.deepEqual(prepared.workflowArgs.models, { reviewer: 'sonnet', verifier: 'sonnet' })
   assert.match(prepared.workflowArgs.scopeText, /a.js: 3/)
   assert.equal(prepared.workflowArgs.files[0].path, 'a.js')
   assert.ok(existsSync(prepared.pendingPath))

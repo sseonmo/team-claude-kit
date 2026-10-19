@@ -49,6 +49,17 @@ test('4개 차원과 plain meta, 위치 스키마, 범용 읽기 전용 프롬�
   assert.equal(timers.filter(t => t.active).length, 0)
 })
 
+test('args.models 를 리뷰어·검증자 agent 의 model 로 넘기고, 없으면 세션 모델을 상속한다', async () => {
+  const { calls } = await run({ findings: [finding('major')], options: { models: { reviewer: 'sonnet', verifier: 'haiku' } } })
+  const reviews = calls.filter(c => c.label.startsWith('review:')), verifies = calls.filter(c => c.label.startsWith('verify:'))
+  assert.equal(reviews.length, 4)
+  assert.ok(verifies.length > 0)
+  for (const c of reviews) assert.equal(c.model, 'sonnet')
+  for (const c of verifies) assert.equal(c.model, 'haiku')
+  const inherit = await run({ findings: [finding('major')] })
+  for (const c of inherit.calls) assert.equal('model' in c, false)
+})
+
 test('빠른 모드 raw 표와 서로 다른 두 검증 관점', async () => {
   const { result, calls } = await run({ findings: [finding(), finding('minor', 30)] })
   const found = result.dimensions[0].findings
