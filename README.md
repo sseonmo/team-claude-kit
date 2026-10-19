@@ -224,7 +224,7 @@ Spring Boot + Thymeleaf·Next.js 설정 초안을 init 이 만든다. 측정 도
 ### team-code-review
 
 ```text
-/deep-review             # 정밀 리뷰
+/deep-review             # 대상에 따라 자동 선택 (커밋 전 기본은 빠른 리뷰)
 /deep-review --fast      # 300초 빠른 리뷰
 /deep-review --pr        # PR 기준 diff 리뷰
 /deep-review --comment   # 명시적으로 요청한 경우에만 PR 리뷰 게시
