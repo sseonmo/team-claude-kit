@@ -1,5 +1,6 @@
 import { settleFinding } from '../engine/votes.mjs'
 import { computeVerdict } from '../engine/verdict.mjs'
+import { DIMENSION_KEYS } from '../engine/config.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -154,4 +155,10 @@ test('args.dimensions 에 없는 차원은 리뷰어·검증자를 띄우지 않
   assert.deepEqual(result.dimensions.map(d => d.key), ['correctness', 'security', 'test-coverage'])
   assert.ok(logs.some(s => s.includes('architecture') && s.includes('생략')))
   assert.equal(calls.some(c => c.label.startsWith('review:') && c.prompt.includes('architecture')), false)
+})
+
+test('엔진 DIMENSION_KEYS 는 워크플로 DIMENSIONS 키와 순서까지 같다', async () => {
+  const source = await readFile(sourcePath, 'utf8')
+  const keys = [...source.matchAll(/^\s*\{ key: '([a-z-]+)'/gm)].map(m => m[1])
+  assert.deepEqual(keys, DIMENSION_KEYS)
 })
