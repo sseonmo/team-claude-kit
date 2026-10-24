@@ -3,9 +3,9 @@ import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { VERSION } from './config.mjs'
 
-export function reuseKey({ headSha, baseSha, diffText, untrackedText, stagedText, mode, rulesText, version = VERSION }) {
+export function reuseKey({ headSha, baseSha, diffText, untrackedText, stagedText, mode, rulesText, version = VERSION, dimensions = null }) {
   // 구조화된 필드 경계로 내용에 개행·구분자가 있어도 입력끼리 합쳐지지 않는다.
-  return createHash('sha256').update(JSON.stringify([headSha, baseSha, diffText, untrackedText, stagedText, mode, rulesText, version])).digest('hex')
+  return createHash('sha256').update(JSON.stringify([headSha, baseSha, diffText, untrackedText, stagedText, mode, rulesText, version, dimensions])).digest('hex')
 }
 
 const inside = (root, target) => {

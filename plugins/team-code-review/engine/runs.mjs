@@ -2,7 +2,7 @@ import { openSync, fstatSync, writeSync, closeSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { commonDir } from './git.mjs'
 
-export const RUNS_HEADER = 'at\tbranch\tmode\tfiles\tlines\tseconds\tcap_hit\tunverified\ttiebreaks\tverdict'
+export const RUNS_HEADER = 'at\tbranch\tmode\tfiles\tlines\tseconds\tcap_hit\tunverified\ttiebreaks\tverdict\tskipped'
 
 export function formatRun(row) {
   // 제어 문자를 이스케이프하여 한 실행이 항상 열 개의 열·한 줄이 되게 한다.

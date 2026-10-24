@@ -71,7 +71,7 @@ function buildPrompt(d) {
   return [
     '너는 코드 리뷰어다. 담당 차원은 하나뿐이다: ' + d.key,
     RULES, '## 리뷰 대상', TARGET, '## 네가 볼 것', d.focus,
-    '## 네가 보지 않을 것', '다른 차원(' + DIMENSIONS.filter(x => x !== d).map(x => x.key).join(', ') + ')은 다른 에이전트가 보고 있다. 네 차원으로 설명할 수 있는 발견만 보고하라.',
+    '## 네가 보지 않을 것', '다른 차원(' + ACTIVE.filter(x => x !== d).map(x => x.key).join(', ') + ')은 다른 에이전트가 보고 있다. 네 차원으로 설명할 수 있는 발견만 보고하라.',
     SEVERITY_GUIDE, '## 발견 형식',
     'title: 문제를 명사구 한 줄(40자 안쪽). tldr: 왜 문제이고 언제 터지는지 구체적 조건 한 문장. good: 그 지점의 장점, 없으면 빈 문자열. fix: 적용할 수정 코드, 설명 문장 금지.',
     '## 거짓 양성 금지', '확실하지 않으면 보고하지 마라. 코드를 실제로 읽기 전에 추측으로 보고하지 마라. 가능성만 있으면 빼라. 발견 0건은 정상이다.',
@@ -94,6 +94,9 @@ function verifyPrompt(f, d, lens, prior) {
   ].join('\n')
 }
 
+// args.dimensions 가 있으면 그 키의 차원만 실행한다. 없거나 일치하는 키가 없으면 전부 실행한다(하위 호환).
+const requested = Array.isArray(a.dimensions) ? DIMENSIONS.filter(d => a.dimensions.includes(d.key)) : []
+const ACTIVE = requested.length ? requested : DIMENSIONS
 let late = false
 let noTiebreak = a.tiebreak === false
 let tiebreaks = 0
@@ -149,9 +152,11 @@ async function verifyDimension(r, d) {
   const findings = await parallel(raw.map((f,j) => () => verifyFinding(f,d,j)))
   return { key: d.key, failed: false, findings, walkthrough: r.walkthrough || '', praise: r.praise || '' }
 }
-log('4개 차원 동시 리뷰: ' + DIMENSIONS.map(d => d.key).join(' · '))
+const omitted = DIMENSIONS.filter(d => !ACTIVE.includes(d))
+if (omitted.length) log(omitted.map(d => d.key).join(' · ') + ' 생략 — 작은 변경이라 이 차원은 리뷰하지 않는다.')
+log(ACTIVE.length + '개 차원 동시 리뷰: ' + ACTIVE.map(d => d.key).join(' · '))
 try {
-  const dimensions = await pipeline(DIMENSIONS,
+  const dimensions = await pipeline(ACTIVE,
     d => bounded(buildPrompt(d), withModel({ label: 'review:' + d.key, phase: 'Review', schema: FINDINGS_SCHEMA }, 'reviewer')),
     (r,d) => verifyDimension(r,d))
   if (capped) log('검증 상한으로 ' + capped + '건 미검증')

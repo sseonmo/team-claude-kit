@@ -19,4 +19,10 @@ export const LOCKFILES = ['*.lock', 'package-lock.json', 'pnpm-lock.yaml', 'yarn
 // 워크플로 에이전트 모델. 리뷰 1회 비용의 대부분이 에이전트 수 × 모델 단가라 세션 모델(Opus) 상속 대신 지정한다.
 export const AGENT_MODELS = { reviewer: 'sonnet', verifier: 'sonnet' }
 
+// 작은 변경(테스트 파일 제외 변경 줄 ≤ lines, 변경 파일 ≤ files)의 빠른 모드 리뷰는 SMALL_DIFF_SKIP 차원을 생략한다.
+// 근거: 실측 13회에서 architecture 는 minor 만 냈고 판정을 바꾼 적이 없다. FinSight 커밋 중앙값은 135줄이다.
+export const SMALL_DIFF = { lines: 150, files: 3 }
+export const SMALL_DIFF_SKIP = ['architecture']
+export const DIMENSION_KEYS = ['correctness', 'security', 'architecture', 'test-coverage']
+
 export const SEVERITY_RANK = { critical: 0, major: 1, minor: 2, nit: 3 }

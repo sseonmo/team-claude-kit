@@ -70,11 +70,11 @@ test('첫 커밋 전 저장소도 리뷰하고 headSha null 로 기록한다', t
 
 test('실패 차원은 Incomplete 로 기록하고 재사용에도 남긴다', t => {
   const f = fixture(t)
-  f.change(); f.run(['prepare'])
+  f.change(); f.run(['prepare', '--deep'])
   const result = f.settle({ dimensions: [{ key: 'architecture', failed: true, findings: [], walkthrough: '', praise: '' }], tiebreaks: 1, cutoff: true })
   assert.equal(result.verdict, 'Incomplete')
   assert.match(result.rendered, /architecture 차원은 실행되지 않았다/)
-  assert.match(f.run(['prepare']).reuse.rendered, /architecture 차원은 실행되지 않았다/)
+  assert.match(f.run(['prepare', '--deep']).reuse.rendered, /architecture 차원은 실행되지 않았다/)
   assert.equal(f.record().rounds[0].result.cutoff, true)
 })
 
@@ -494,4 +494,120 @@ test('real CLI prepare retains page.tsx prior after verified line expands to cat
   assert.equal(prepared.workflowArgs.priors.length, 1)
   assert.equal(prepared.workflowArgs.priors[0].id, 'R1-1')
   assert.equal(prepared.workflowArgs.priors[0].loc.line, 100)
+})
+
+// ---- 작은 변경에서 architecture 차원 생략 ----
+const body = (n, tag = 'x') => Array.from({ length: n }, (_, i) => `${tag}${i}`).join('\n') + '\n'
+const put = (f, name, value) => { mkdirSync(path.dirname(path.join(f.root, name)), { recursive: true }); f.change(name, value) }
+const small = (f, { src = [20, 20], tests = 300 } = {}) => {
+  src.forEach((n, i) => put(f, `src/s${i}.js`, body(n, `s${i}_`)))
+  if (tests) put(f, 'tests/x.test.js', body(tests, 't'))
+}
+const four = ['correctness', 'security', 'architecture', 'test-coverage']
+const threeResult = () => ({ dimensions: ['correctness', 'security', 'test-coverage'].map(key => ({ key, failed: false, findings: [], walkthrough: '요약', praise: '' })), tiebreaks: 0, cutoff: false })
+
+test('작은 변경 빠른 모드는 테스트 파일을 뺀 소스 기준으로 architecture 를 생략한다', t => {
+  const f = fixture(t)
+  small(f)
+  const prepared = f.run(['prepare'])
+  assert.deepEqual(prepared.workflowArgs.dimensions, ['correctness', 'security', 'test-coverage'])
+  assert.match(prepared.message, /architecture 생략 — 작은 변경\(소스 40줄·2파일\)\. 전체 리뷰는 --deep/)
+  assert.equal(json(prepared.pendingPath).skipped.dimensions[0], 'architecture')
+})
+
+test('같은 변경도 --deep 이면 4개 차원이고 생략 줄이 없다', t => {
+  const f = fixture(t)
+  small(f)
+  const prepared = f.run(['prepare', '--deep'])
+  assert.deepEqual(prepared.workflowArgs.dimensions, four)
+  assert.doesNotMatch(prepared.message, /생략/)
+})
+
+test('PR 대상은 --fast 여도 4개 차원이다', t => {
+  const f = fixture(t)
+  git(f.root, 'checkout', '-q', '-b', 'feature')
+  commit(f.root, { 'src/s0.js': body(5) }, 'work')
+  f.pr()
+  const prepared = f.run(['prepare', '--pr', '--fast'])
+  assert.deepEqual(prepared.workflowArgs.dimensions, four)
+})
+
+test('소스 151줄이거나 소스 파일이 4개면 4개 차원이다', t => {
+  const f = fixture(t)
+  put(f, 'src/big.js', body(151))
+  assert.deepEqual(f.run(['prepare']).workflowArgs.dimensions, four)
+  const g = fixture(t)
+  small(g, { src: [1, 1, 1, 1], tests: 0 })
+  assert.deepEqual(g.run(['prepare']).workflowArgs.dimensions, four)
+  const h = fixture(t)
+  put(h, 'src/edge.js', body(150))
+  assert.equal(h.run(['prepare']).workflowArgs.dimensions.length, 3)
+})
+
+test('lockfile 은 소스 줄·파일 수에서 뺀다', t => {
+  const f = fixture(t)
+  small(f, { src: [10, 10, 10], tests: 0 })
+  put(f, 'package-lock.json', body(500))
+  assert.equal(f.run(['prepare']).workflowArgs.dimensions.length, 3)
+})
+
+test('생략은 실패가 아니다 — 발견 0 이면 Approve 이고 출력에 생략 줄이 남는다', t => {
+  const f = fixture(t)
+  small(f)
+  f.run(['prepare'])
+  const result = f.settle(threeResult())
+  assert.equal(result.verdict, 'Approve')
+  assert.match(result.rendered, /architecture 생략 — 작은 변경\(소스 40줄·2파일\)/)
+  assert.doesNotMatch(result.rendered, /차원은 실행되지 않았다/)
+  assert.deepEqual(f.record().rounds[0].result.skipped.dimensions, ['architecture'])
+  const reused = f.run(['prepare'])
+  assert.equal(reused.status, 'reuse')
+  assert.match(reused.reuse.rendered, /architecture 생략 — 작은 변경\(소스 40줄·2파일\)/)
+  const [header, row] = readFileSync(path.join(f.metadata, 'runs.tsv'), 'utf8').trim().split('\n').map(line => line.split('\t'))
+  assert.equal(header.at(-1), 'skipped')
+  assert.equal(row.at(-1), 'architecture')
+})
+
+test('워크플로가 생략 차원을 실패로 보고해도 pending 기준으로 무시한다', t => {
+  const f = fixture(t)
+  small(f)
+  f.run(['prepare'])
+  const result = threeResult()
+  result.dimensions.push({ key: 'architecture', failed: true, findings: [], walkthrough: '', praise: '' })
+  assert.equal(f.settle(result).verdict, 'Approve')
+})
+
+test('4개 차원 실행은 생략 줄도 없고 runs 의 skipped 는 빈 값이다', t => {
+  const f = fixture(t)
+  small(f)
+  f.run(['prepare', '--deep'])
+  const result = f.settle({ dimensions: four.map(key => ({ key, failed: false, findings: [], walkthrough: '요약', praise: '' })), tiebreaks: 0, cutoff: false })
+  assert.doesNotMatch(result.rendered, /생략 —/)
+  const [header, row] = readFileSync(path.join(f.metadata, 'runs.tsv'), 'utf8').split('\n').slice(0, 2).map(line => line.split('\t'))
+  assert.equal(row.length, header.length)
+  assert.equal(row.at(-1), '')
+})
+
+test('1회차 architecture 발견을 2회차 생략이 해결로 세지 않고 미확인으로 센다', t => {
+  const f = fixture(t)
+  f.change('a.js', text)
+  f.run(['prepare', '--deep'])
+  f.settle({ dimensions: [{ key: 'architecture', failed: false, findings: [finding({ dimension: 'architecture', severity: 'minor', assigned: 0, votes: [] })], walkthrough: '요약', praise: '' }], tiebreaks: 0, cutoff: false })
+  assert.equal(f.record().rounds[0].findings[0].dimension, 'architecture')
+  const second = f.run(['prepare', '--fresh'])
+  assert.equal(second.workflowArgs.dimensions.length, 3)
+  assert.deepEqual(second.workflowArgs.priors, [])
+  const result = f.settle(threeResult())
+  assert.match(result.rendered, /이전 회차 대비: 해결 0 · 새 문제 0 · 충돌 0 · 보류 0 · 미확인 1/)
+})
+
+test('작은 변경 빠른 리뷰 뒤 같은 상태의 --deep 은 재사용이 아니라 실행이다', t => {
+  const f = fixture(t)
+  small(f)
+  f.run(['prepare'])
+  f.settle(threeResult())
+  assert.equal(f.run(['prepare']).status, 'reuse')
+  const deep = f.run(['prepare', '--deep'])
+  assert.equal(deep.status, 'run')
+  assert.equal(deep.workflowArgs.dimensions.length, 4)
 })

@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync, lstatSy
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { git, repoRoot, commonDir } from './git.mjs'
-import { MODES, VERIFY_CAP, TIEBREAK_MIN_SEC, SEVERITY_RANK, AGENT_MODELS } from './config.mjs'
+import { MODES, VERIFY_CAP, TIEBREAK_MIN_SEC, SEVERITY_RANK, AGENT_MODELS, SMALL_DIFF, SMALL_DIFF_SKIP, DIMENSION_KEYS } from './config.mjs'
 import { collectTarget } from './target.mjs'
 import { buildScope, scopeSummary, filterFindings } from './scope.mjs'
 import { settleFinding } from './votes.mjs'
@@ -19,6 +19,7 @@ const headOf = root => git(['rev-parse', '--verify', '--quiet', 'HEAD'], root, {
 const directoryOf = root => path.join(commonDir(root), 'deep-review')
 const pendingOf = root => path.join(directoryOf(root), '.pending.json')
 const digest = value => createHash('sha256').update(value).digest('hex')
+const skipNotice = skipped => `${skipped.dimensions.join(', ')} 생략 — 작은 변경(소스 ${skipped.lines}줄·${skipped.files}파일). 전체 리뷰는 --deep`
 const TREE_CHANGED_NOTICE = '⚠ 리뷰 중 작업 트리가 바뀌었다 — 결과를 기록하지 않습니다.'
 
 function writeJson(file, value) {
@@ -108,12 +109,14 @@ function renderReview(root, record, target, data, findings, candidates, readLine
   const verdict = computeVerdict({ findings: all, failedDims: data.failedDims, indexOnly: target.indexOnly })
   const previous = new Map(record.rounds.flatMap(round => round.findings).map(finding => [finding.id, finding]))
   const conflicts = history.conflicts.map(pair => ({ ...pair, prior: previous.get(pair.priorId) }))
+  const shown = data.skipped ? [skipNotice(data.skipped), ...notices] : notices
   const input = { verdict, findings: history.findings, carried: history.carried, conflicts,
-    convergence: record.rounds.length ? convergence(record, all, data.failedDims, candidates) : null,
+    // 생략한 차원은 실패와 같이 이전 발견을 해결로 세지 않고 미확인으로 센다 (판정에는 들어가지 않는다).
+    convergence: record.rounds.length ? convergence(record, all, [...data.failedDims, ...(data.skipped?.dimensions ?? [])], candidates) : null,
     dropped: data.dropped, walkthrough: data.walkthrough, praise: data.praise,
-    notices: treeChanged ? [TREE_CHANGED_NOTICE, ...notices] : notices, reusedFrom, treeChanged }
+    notices: treeChanged ? [TREE_CHANGED_NOTICE, ...shown] : shown, reusedFrom, treeChanged }
   // 터미널은 경고를 맨 위로 올리고 payload 는 같은 경고를 본문 안내로 보존한다.
-  const rendered = treeChanged ? `${TREE_CHANGED_NOTICE}\n${renderTerminal({ ...input, notices })}` : renderTerminal(input)
+  const rendered = treeChanged ? `${TREE_CHANGED_NOTICE}\n${renderTerminal({ ...input, notices: shown })}` : renderTerminal(input)
   return { history, verdict, input, rendered }
 }
 
@@ -137,7 +140,11 @@ function prepare(root, cwd, flags, tokens) {
   if (!target.files.length && !target.indexOnly.length) return { status: 'none', message: [...notices, '리뷰할 변경이 없습니다.'].join('\n'), pendingPath }
   const { record, notice } = loadRecord(root)
   notices.push(...target.warnings, ...(notice ? [notice] : []))
-  const key = reuseKey({ ...target, mode: target.mode, rulesText: rulesText(root, target.files) })
+  // 작은 변경 생략은 빠른 모드에서만 — 정밀 모드와 PR 은 항상 전체 차원이다.
+  const small = target.mode === 'fast' && target.kind !== 'pr' && target.sourceLines <= SMALL_DIFF.lines && target.sourceFiles <= SMALL_DIFF.files
+  const skipped = small ? { dimensions: SMALL_DIFF_SKIP, lines: target.sourceLines, files: target.sourceFiles } : null
+  const dimensions = DIMENSION_KEYS.filter(key => !skipped?.dimensions.includes(key))
+  const key = reuseKey({ ...target, mode: target.mode, rulesText: rulesText(root, target.files), dimensions })
   const scope = buildScope(target.files)
   const readLines = lineReader(root, target)
   const candidates = priorCandidates(record, scope, readLines)
@@ -150,10 +157,11 @@ function prepare(root, cwd, flags, tokens) {
       reuse: { rendered: review.rendered, ...payloadFiles(root, flags, pr, review.input) } }
   }
   const workflowArgs = { root, mode: target.mode, base: target.baseSha, files: target.files, scopeText: scopeSummary(scope),
-    priors: candidates.filter(candidate => candidate.authoritative !== false).map(({ prior, loc, hunk }) => ({ id: prior.id, dimension: prior.dimension, title: prior.title, tldr: prior.tldr, loc, hunk })),
+    dimensions,
+    priors: candidates.filter(candidate => candidate.authoritative !== false && dimensions.includes(candidate.prior.dimension)).map(({ prior, loc, hunk }) => ({ id: prior.id, dimension: prior.dimension, title: prior.title, tldr: prior.tldr, loc, hunk })),
     votes: MODES[target.mode].votes, verifyCap: VERIFY_CAP[target.mode], tiebreakMinSec: TIEBREAK_MIN_SEC, capSec: MODES[target.mode].capSec, models: AGENT_MODELS }
-  writeJson(pendingPath, { root, branch: branchOf(root), startedAt: new Date().toISOString(), treeHash: treeHash(root), target, paths, flags, pr, notices, reuseKey: key })
-  return { status: 'run', message: [...notices, `${target.files.length}개 파일 리뷰를 시작합니다.`].join('\n'), workflowArgs, pendingPath }
+  writeJson(pendingPath, { root, branch: branchOf(root), startedAt: new Date().toISOString(), treeHash: treeHash(root), target, paths, flags, pr, notices, reuseKey: key, dimensions, skipped })
+  return { status: 'run', message: [...notices, ...(skipped ? [skipNotice(skipped)] : []), `${target.files.length}개 파일 리뷰를 시작합니다.`].join('\n'), workflowArgs, pendingPath }
 }
 
 function mergeDuplicates(findings) {
@@ -194,7 +202,10 @@ function settle(root, flags) {
   const readLines = lineReader(root, target)
   const { record, notice } = loadRecord(root)
   const candidates = priorCandidates(record, scope, readLines)
-  const raws = result.dimensions.flatMap(dimension => dimension.failed ? [] : dimension.findings)
+  // 생략 차원은 prepare 가 정해 pending 에 저장한 값을 기준으로 한다. 워크플로가 보낸 생략 차원 결과는 쓰지 않는다.
+  const skipped = pending.skipped ?? null
+  const ran = result.dimensions.filter(dimension => !skipped?.dimensions.includes(dimension.key))
+  const raws = ran.flatMap(dimension => dimension.failed ? [] : dimension.findings)
   const { kept, dropped } = filterFindings(raws, scope)
   // workflow 의 priorId 도 현재 후보 hunk 로 다시 검증하여 외부 id 를 신뢰하지 않는다.
   const attached = attachPriors(kept, candidates, scope)
@@ -205,9 +216,9 @@ function settle(root, flags) {
     const anchor = treeChanged && typeof lines[finding.loc.line - 1] !== 'string' ? null : makeAnchor(lines, finding.loc.line)
     return { ...finding, id: `R${n}-${index + 1}`, anchor }
   })
-  const data = { findings, failedDims: result.dimensions.filter(dimension => dimension.failed).map(dimension => dimension.key),
-    dropped, walkthrough: result.dimensions.map(dimension => dimension.walkthrough).filter(Boolean), praise: result.dimensions.map(dimension => dimension.praise).filter(Boolean),
-    tiebreaks: result.tiebreaks, cutoff: result.cutoff }
+  const data = { findings, failedDims: ran.filter(dimension => dimension.failed).map(dimension => dimension.key),
+    dropped, walkthrough: ran.map(dimension => dimension.walkthrough).filter(Boolean), praise: ran.map(dimension => dimension.praise).filter(Boolean),
+    tiebreaks: result.tiebreaks, cutoff: result.cutoff, skipped }
   const notices = [...pending.notices, ...(notice ? [notice] : [])]
   const detached = recordPath(root) === null
   if (detached) notices.push('detached HEAD 이므로 회차 기록과 실행 기록을 저장하지 않습니다.')
@@ -221,7 +232,7 @@ function settle(root, flags) {
     appendRun(root, { at: new Date().toISOString(), branch: pending.branch, mode: target.mode, files: target.files.length, lines: target.changedLines,
       seconds: Math.max(0, Math.round((Date.now() - Date.parse(pending.startedAt)) / 1000)), cap_hit: result.cutoff ? 1 : 0,
       unverified: [...review.history.findings, ...review.history.carried].filter(finding => finding.verification === 'unverified').length,
-      tiebreaks: result.tiebreaks, verdict: review.verdict.verdict })
+      tiebreaks: result.tiebreaks, verdict: review.verdict.verdict, skipped: skipped?.dimensions.join(',') ?? '' })
   }
   unlinkSync(pendingOf(root))
   return { rendered, verdict: review.verdict.verdict, ...paths, treeChanged }

@@ -7,12 +7,13 @@ import { VERSION } from '../engine/config.mjs'
 import { makeRepo, removeRepo } from './helpers.mjs'
 
 test('재사용 키는 모든 입력과 필드 경계를 반영한다', () => {
-  const input = { headSha: 'h', baseSha: 'b', diffText: 'd', untrackedText: 'u', stagedText: 's', mode: 'fast', rulesText: 'r', version: '1' }
+  const input = { headSha: 'h', baseSha: 'b', diffText: 'd', untrackedText: 'u', stagedText: 's', mode: 'fast', rulesText: 'r', version: '1', dimensions: ['a', 'b'] }
   assert.match(reuseKey(input), /^[a-f0-9]{64}$/)
   assert.equal(reuseKey(input), reuseKey({ ...input }))
   for (const key of Object.keys(input)) assert.notEqual(reuseKey(input), reuseKey({ ...input, [key]: 'changed' }), key)
   assert.notEqual(reuseKey({ ...input, diffText: 'a\nb', untrackedText: 'c' }), reuseKey({ ...input, diffText: 'a', untrackedText: 'b\nc' }))
   const { version, ...withoutVersion } = input
+  assert.notEqual(reuseKey(input), reuseKey({ ...input, dimensions: ['a'] }))
   assert.equal(reuseKey(withoutVersion), reuseKey({ ...input, version: VERSION }))
 })
 

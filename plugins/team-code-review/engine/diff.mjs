@@ -111,6 +111,15 @@ export function untrackedDiff(root, paths) {
   return paths.flatMap(p => parseDiff(git(['diff', '--no-index', '--', '/dev/null', p], root, { okCodes: [1] }) ?? ''))
 }
 
+// 테스트 파일인지 — 작은 변경 판정에서 변경 줄·파일 수를 셀 때 뺀다.
+// 디렉터리 세그먼트 test/ tests/ __tests__/ (Java src/test/ 포함), 파일명 *.test.* *.spec.* test_*.py *_test.py *_test.go *Test.java *Tests.java.
+export function isTestPath(path) {
+  const parts = path.split('/')
+  const base = parts.pop()
+  return parts.some(part => ['test', 'tests', '__tests__'].includes(part))
+    || /\.(test|spec)\./.test(base) || /^test_.*\.py$/.test(base) || /_test\.(py|go)$/.test(base) || /Tests?\.java$/.test(base)
+}
+
 // 생성 파일(lockfile)인지 — 변경 줄 수 집계에서 뺀다. LOCKFILES 의 `*.x` 는 접미사, 나머지는 파일명 일치.
 export function isLockfile(path) {
   const base = path.split('/').pop()

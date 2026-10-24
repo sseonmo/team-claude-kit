@@ -1,5 +1,5 @@
 import { git, gitOk } from './git.mjs'
-import { parseDiff, untrackedDiff, isLockfile } from './diff.mjs'
+import { parseDiff, untrackedDiff, isLockfile, isTestPath } from './diff.mjs'
 import { LARGE_DIFF_LINES } from './config.mjs'
 
 // 커밋이 하나도 없는 저장소의 기준 — 빈 트리 (git hash-object -t tree /dev/null)
@@ -63,7 +63,7 @@ export function collectTarget(root, flags = {}, paths = []) {
   } else baseSha = headSha ?? EMPTY_TREE
 
   if (kind === 'none') {
-    return { kind, mode, baseSha, headSha, files: [], diffText: '', untrackedText: '', stagedText: '', changedLines: 0, indexOnly: [], warnings: [] }
+    return { kind, mode, baseSha, headSha, files: [], diffText: '', untrackedText: '', stagedText: '', changedLines: 0, sourceLines: 0, sourceFiles: 0, indexOnly: [], warnings: [] }
   }
 
   const diffText = git(['diff', baseSha, ...spec], root)
@@ -81,9 +81,12 @@ export function collectTarget(root, flags = {}, paths = []) {
 
   // lockfile 은 줄 수 집계에서 뺀다 — 매번 경고가 뜨면 경고가 무시된다
   const changedLines = files.filter(f => !isLockfile(f.path)).reduce((n, f) => n + f.added.length + f.removed.length, 0)
+  // 작은 변경 판정용: lockfile 에 더해 테스트 파일도 뺀 줄·파일 수
+  const sources = files.filter(f => !isLockfile(f.path) && !isTestPath(f.path))
+  const sourceLines = sources.reduce((n, f) => n + f.added.length + f.removed.length, 0)
   const warnings = changedLines > LARGE_DIFF_LINES
     ? [`변경 ${changedLines}줄 — 5분 안에 끝나지 않을 수 있다. 경로 인수로 나눠 리뷰하라(예: /deep-review src/order/)`]
     : []
 
-  return { kind, mode, baseSha, headSha, files, diffText, untrackedText, stagedText, changedLines, indexOnly, warnings }
+  return { kind, mode, baseSha, headSha, files, diffText, untrackedText, stagedText, changedLines, sourceLines, sourceFiles: sources.length, indexOnly, warnings }
 }

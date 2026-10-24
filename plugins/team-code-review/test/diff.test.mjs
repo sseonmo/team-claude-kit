@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { git } from '../engine/git.mjs'
-import { parseDiff, untrackedDiff, isLockfile } from '../engine/diff.mjs'
+import { parseDiff, untrackedDiff, isLockfile, isTestPath } from '../engine/diff.mjs'
 import { makeRepo, commit, removeRepo } from './helpers.mjs'
 
 const lines = (n, f = i => `l${i}`) => Array.from({ length: n }, (_, i) => f(i + 1)).join('\n') + '\n'
@@ -183,3 +183,8 @@ test('no-index 한글·공백·따옴표 경로를 보존한다', withRepo(dir =
   for (const name of names) writeFileSync(path.join(dir, name), 'new\n')
   assert.deepEqual(untrackedDiff(dir, names).map(f => f.path), names)
 }))
+
+test('isTestPath', () => {
+  for (const p of ['src/a.test.ts', 'src/test/java/FooTest.java', 'tests/x.py', 'pkg/a_test.go', '__tests__/b.js', 'a/b.spec.js', 'test_x.py', 'pkg/x_test.py', 'FooTests.java', 'test/a.js']) assert.equal(isTestPath(p), true, p)
+  for (const p of ['src/latest.js', 'src/contest/A.java', 'testdata.json', 'src/attest.js', 'src/protest_x.py']) assert.equal(isTestPath(p), false, p)
+})

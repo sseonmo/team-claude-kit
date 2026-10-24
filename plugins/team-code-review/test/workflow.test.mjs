@@ -145,3 +145,13 @@ test('Workflow uses supplied valid prior and otherwise prepared order', async ()
   const { result } = await run({ findings: [finding(), { ...finding('major', 30), priorId: 'older-valid' }], options: { priors } })
   assert.deepEqual(result.dimensions[0].findings.map(f => f.priorId), ['adopted', 'older-valid'])
 })
+
+test('args.dimensions 에 없는 차원은 리뷰어·검증자를 띄우지 않고 log 로 알린다', async () => {
+  const { result, calls, logs } = await run({ findings: [finding()], options: { dimensions: ['correctness', 'security', 'test-coverage'] },
+    responder: (p, c) => c.label.startsWith('review:') ? { ...empty(), findings: c.label === 'review:correctness' ? [finding()] : [] } : vote() })
+  assert.deepEqual(calls.filter(c => c.label.startsWith('review:')).map(c => c.label).sort(), ['review:correctness', 'review:security', 'review:test-coverage'])
+  assert.equal(calls.some(c => c.label.includes('architecture')), false)
+  assert.deepEqual(result.dimensions.map(d => d.key), ['correctness', 'security', 'test-coverage'])
+  assert.ok(logs.some(s => s.includes('architecture') && s.includes('생략')))
+  assert.equal(calls.some(c => c.label.startsWith('review:') && c.prompt.includes('architecture')), false)
+})
