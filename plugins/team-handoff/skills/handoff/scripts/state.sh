@@ -3,11 +3,9 @@
 # LLM 이 손으로 git 명령을 나열하다 빠뜨리는 것을 막기 위한 것이므로, 여기서는 판단하지 않고 사실만 찍는다.
 # 예외: 경로를 믿어도 되는지(CONFIRM_DIR)는 여기서 결론까지 내린다 — 조합 해석을 모델에 맡기면 틀린다.
 #
-#   bash state.sh          # 상태 수집
-#   bash state.sh --paths  # 경로만(빠름)
-#   bash state.sh --verify # MEMORY.md 포인터를 넣고, 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
+#   bash state.sh           # 상태 수집. 인계가 있으면 본문까지 찍는다(재개 때 따로 Read 하지 않게)
+#   bash state.sh --verify  # MEMORY.md 포인터를 넣고, 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
 #   bash state.sh --consume # 재개 직후 인계 파일 삭제 + MEMORY.md ⏸ 줄 제거
-#   bash state.sh --archive # 다른 작업의 미재개 인계를 handoff-archive-<시각>.md 로 옮김
 #
 # 메모리 디렉토리는 cwd 가 아니라 **세션 ID 로 찾은 트랜스크립트의 부모**로 정한다.
 # 그래서 `cd` 한 뒤 실행해도 같은 프로젝트를 본다(출처는 MEMORY_DIR_SOURCE 가 밝힌다).
@@ -57,29 +55,12 @@ if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
   fi
 fi
 
-# ② 앵커도 없고(세션 밖 실행·트랜스크립트 만료) 계산한 경로도 없으면 basename 으로 찾는다.
-# 단 접미사가 정확히 `-<BASE>` 인 후보가 **유일할 때만** 채택한다.
-# 느슨한 glob(`*BASE`)으로 head -1 을 집으면 basename 만 같은 무관한 프로젝트가 걸린다 —
-# 그 경우 남의 메모리에 인계를 쓰거나, 현재 프로젝트의 MEMORY.md 가 자동 로드되지 않아
-# 이 스킬의 핵심 메커니즘(대기 포인터)이 조용히 죽는다. 애매하면 채택하지 않는 쪽이 맞다.
-if [ "$MEM_SOURCE" = "cwd" ] && [ ! -d "$MEM" ]; then
-  BASE="$(basename "$CWD" | sed -e 's#[_.]#-#g')"
-  CANDS="$(ls -1d "$HOME/.claude/projects/"*"-$BASE" 2>/dev/null)"
-  CAND_N="$(printf '%s' "$CANDS" | grep -c . || true)"
-  if [ "$CAND_N" = "1" ]; then
-    MEM="$CANDS/memory"
-    MEM_SOURCE=basename
-  fi
-fi
-
-# FALLBACK 은 "추정이라 사람이 확인해야 한다"는 신호다. 세션 앵커는 추정이 아니라 실물이고,
-# basename 추정이라도 결과가 cwd 계산값과 **같으면** 추정한 바가 없으므로 켜지 않는다.
-MEM_FALLBACK=no
-if [ "$MEM_SOURCE" = "basename" ] && [ "$MEM" != "$MEM_CALC" ]; then MEM_FALLBACK=yes; fi
+# 앵커를 못 찾으면(세션 밖 실행·트랜스크립트 만료) cwd 계산값을 쓴다. 0.3.2 까지는 basename 으로
+# 다른 프로젝트 디렉토리를 추정했으나 실사용 51회 모두 세션 앵커로 잡혀 한 번도 쓰이지 않았다(0.3.3 제거).
+# 계산값 디렉토리가 없으면 아래 CONFIRM_DIR=yes 로 사람에게 확인받는다.
 
 echo "MEMORY_DIR=$MEM"
 echo "MEMORY_DIR_SOURCE=$MEM_SOURCE"
-echo "MEMORY_DIR_FALLBACK=$MEM_FALLBACK"
 echo "MEMORY_EXISTS=$([ -d "$MEM" ] && echo yes || echo no)"
 echo "HANDOFF_FILE=$MEM/handoff-active.md"
 echo "HANDOFF_PENDING=$([ -f "$MEM/handoff-active.md" ] && echo yes || echo no)"
@@ -112,17 +93,13 @@ if [ "$MEM_SOURCE" = "session" ] && [ "$MEM" != "$MEM_CALC" ]; then
 else
   echo "CWD_MOVED=no"
 fi
-# 이 경로에 써도 되는가 — SOURCE·FALLBACK·EXISTS 조합의 결론이다.
-# session 은 트랜스크립트 실물이라 믿는다. 추정한 경로(basename)이거나, 계산값인데 디렉토리가
-# 없으면 쓰기 전에 사람이 확인해야 한다 — 틀린 곳에 만들면 진짜 인계가 방치된다.
-if [ "$MEM_FALLBACK" = "yes" ]; then
-  echo "CONFIRM_DIR=yes — basename 으로 추정한 경로다"
-elif [ "$MEM_SOURCE" = "cwd" ] && [ ! -d "$MEM" ]; then
+# 이 경로에 써도 되는가. session 은 트랜스크립트 실물이라 믿는다. 세션을 못 찾아 계산한 경로인데
+# 디렉토리가 없으면 쓰기 전에 사람이 확인해야 한다 — 틀린 곳에 만들면 진짜 인계가 방치된다.
+if [ "$MEM_SOURCE" = "cwd" ] && [ ! -d "$MEM" ]; then
   echo "CONFIRM_DIR=yes — 세션을 못 찾아 계산한 경로인데 디렉토리가 없다"
 else
   echo "CONFIRM_DIR=no"
 fi
-[ "${1:-}" = "--paths" ] && exit 0
 
 # ── --consume: 재개 직후 인계 소비 ────────────────────────
 # "읽었으면 지운다"를 모델 판단에 맡겼더니 재개 세션 대부분이 지우지 않았고, 포인터가 남아
@@ -139,21 +116,6 @@ if [ "${1:-}" = "--consume" ]; then
     echo "CONSUME_RESULT=ok"; exit 0
   fi
   echo "CONSUME_RESULT=fail"; exit 1
-fi
-
-# ── --archive: 다른 작업의 미재개 인계를 보관 ─────────────
-# 인계 칸은 하나라, 재개되지 않은 다른 주제의 인계 위에 저장하면 그 작업이 사라진다.
-# 덮어쓰기 전에 날짜를 붙여 옮기고, 인덱스에 🗄 줄을 남겨 다음 세션이 존재를 알게 한다.
-if [ "${1:-}" = "--archive" ]; then
-  [ -f "$_ho" ] || { echo "ARCHIVE_RESULT=skip — 보관할 인계가 없다"; exit 0; }
-  _ts="$(date +%Y%m%d-%H%M)"
-  _arc="handoff-archive-$_ts.md"
-  mv "$_ho" "$MEM/$_arc"
-  if [ -f "$MEM/MEMORY.md" ]; then
-    awk -v BINMODE=3 -v a="$_arc" '/^- \[.*\]\(handoff-active\.md\)/{sub(/\[⏸ 진행 중 인계/,"[🗄 보관된 인계"); sub(/\(handoff-active\.md\)/,"(" a ")")}1' \
-      "$MEM/MEMORY.md" > "$MEM/MEMORY.md.tmp" && mv "$MEM/MEMORY.md.tmp" "$MEM/MEMORY.md"
-  fi
-  echo "ARCHIVE_RESULT=ok — $_arc"; exit 0
 fi
 
 # ── --verify: 저장 직후 자기검증 ──────────────────────────
@@ -185,30 +147,12 @@ if [ "${1:-}" = "--verify" ]; then
   step1="$(awk '/^## .*다음 단계/{f=1;next} f&&/^## /{exit} f' "$HO" \
          | awk '/^[[:space:]]*1\./{g=1} g&&/^[[:space:]]*2\./{exit} g')"
 
-  # ① 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명).
-  #    모델이 MEMORY.md 를 Read→Edit 하던 것을 여기서 한다(저장마다 1~2턴 절약).
-  #    주제는 `# ⏸ <주제>` 제목, 다음 동작은 "다음 단계 1" 첫 줄에서 뽑는다.
-  #    이전 포인터 줄은 지우고 최상단에 새로 넣는다. 방금 쓴 파일일 때만 넣는다 —
-  #    낡은 파일로 포인터를 만들면 끝난 작업이 다시 대기 상태가 된다.
-  #    MEMORY.md 는 CRLF 일 수 있어 grep -U 로 바이트 그대로 옮기고, 새 줄도 같은 줄끝으로 쓴다.
-  _idx="$MEM/MEMORY.md"
+  # ① 제목 — 포인터의 주제가 된다. 기존 포인터가 남아 있어도 따로 검사한다(옛 주제 포인터로 통과 방지)
   _topic="$(grep -m1 '^# ⏸' "$HO" | sed -e 's/^# ⏸[[:space:]]*//' -e 's/\r$//')"
-  _next="$(printf '%s\n' "$step1" | head -1 | sed -e 's/^[[:space:]]*1\.[[:space:]]*//' -e 's/\r$//')"
-  if [ "$fail" = "0" ] && [ -n "$_topic" ]; then
-    _eol=''
-    [ -f "$_idx" ] && grep -q $'\r$' "$_idx" && _eol=$'\r'
-    {
-      printf '%s%s\n' "- [⏸ 진행 중 인계 — $_topic](handoff-active.md) — \`/handoff\` 로 재개. 다음: $_next" "$_eol"
-      if [ -f "$_idx" ]; then grep -U -v '^- \[.*](handoff-active\.md)' "$_idx" || true; fi
-    } > "$_idx.tmp" && mv "$_idx.tmp" "$_idx"
-  fi
-  if grep -q '^- \[.*](handoff-active\.md)' "$_idx" 2>/dev/null; then
-    echo "VERIFY_INDEX_PTR=ok"
-  elif [ -z "$_topic" ]; then
-    echo "VERIFY_INDEX_PTR=FAIL — 인계 파일에 '# ⏸ <주제>' 제목 줄이 없어 포인터를 만들 수 없다"
-    fail=1
+  if [ -n "$_topic" ]; then
+    echo "VERIFY_TOPIC=ok"
   else
-    echo "VERIFY_INDEX_PTR=FAIL — MEMORY.md 에 ](handoff-active.md) 포인터를 넣지 못했다"
+    echo "VERIFY_TOPIC=FAIL — 인계 파일에 '# ⏸ <주제>' 제목 줄이 없다(포인터 주제로 쓴다)"
     fail=1
   fi
 
@@ -228,7 +172,7 @@ if [ "${1:-}" = "--verify" ]; then
   #    재개 모드는 ❓ 결정 대기를 먼저 묻게 되어 있어, 첫 동작이 질문인 인계가 흔하다.
   #    백틱만 인정했더니 정당한 질문 인계가 FAIL 나고, 모델이 형식용 명령을 끼워 넣고
   #    재검증하느라 저장마다 20초 안팎을 더 썼다(실측: STEP1 FAIL 4건 모두 "묻는다" 인계).
-  #    (step1 은 ① 앞에서 뽑아 두었다.)
+  #    (step1 은 위에서 뽑아 두었다.)
   if printf '%s' "$step1" | grep -qE '`|❓|묻'; then
     echo "VERIFY_STEP1_CMD=ok"
   else
@@ -236,8 +180,16 @@ if [ "${1:-}" = "--verify" ]; then
     fail=1
   fi
 
-  # ④ 미커밋 수 대조 — 본문이 실제와 어긋나면 다음 세션이 작업을 잃는다
-  if git rev-parse --git-dir >/dev/null 2>&1; then
+  # ④ 미커밋 수 대조 — 본문이 실제와 어긋나면 다음 세션이 작업을 잃는다.
+  #    메모리 디렉토리(~/.claude/projects 아래)로 cd 한 채 실행하면 git 이 아니라 대조를 건너뛰고
+  #    통과해 버린다(실측 10-26). $HOME 이 dotfiles 저장소면 엉뚱한 repo 와 대조한다. 그래서 git 판별보다 먼저 막는다.
+  case "$CWD_NATIVE" in
+    *[/\\].claude[/\\]projects[/\\]*|*[/\\].claude[/\\]projects) _in_mem=yes ;;
+    *) _in_mem=no ;;
+  esac
+  if [ "$_in_mem" = "yes" ]; then
+    echo "VERIFY_DIRTY=FAIL — 메모리 디렉토리($CWD)에서 실행했다. 작업 저장소로 cd 한 뒤 다시 실행한다"; fail=1
+  elif git rev-parse --git-dir >/dev/null 2>&1; then
     now="$(git status --porcelain | wc -l | tr -d ' ')"
     # frontmatter 의 description 에도 "미커밋" 이 흔히 들어가므로 파일 전체를 훑으면
     # 제목의 일련번호가 개수로 잘못 잡힌다. "## 상태" 섹션 안에서만 센다.
@@ -254,6 +206,30 @@ if [ "${1:-}" = "--verify" ]; then
     fi
   else
     echo "VERIFY_DIRTY=skip (git 아님)"
+  fi
+
+  # ⑤ 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명).
+  #    모델이 MEMORY.md 를 Read→Edit 하던 것을 여기서 한다(저장마다 1~2턴 절약).
+  #    **위 검사를 모두 통과했을 때만** 넣는다 — 낡은 파일·불완전한 인계를 대기 상태로 게시하지 않는다.
+  #    이전 포인터 줄은 지우고 최상단에 새로 넣는다. 다음 동작은 "다음 단계 1" 첫 줄.
+  #    MEMORY.md 는 CRLF 일 수 있다. Git Bash 의 grep 은 기본으로 CR 을 떼고 보므로
+  #    판별도 복사도 grep -U 로 하고, 새 줄도 같은 줄끝으로 쓴다.
+  _idx="$MEM/MEMORY.md"
+  if [ "$fail" = "0" ]; then
+    _next="$(printf '%s\n' "$step1" | head -1 | sed -e 's/^[[:space:]]*1\.[[:space:]]*//' -e 's/\r$//')"
+    _eol=''
+    [ -f "$_idx" ] && grep -U -q $'\r$' "$_idx" && _eol=$'\r'
+    {
+      printf '%s%s\n' "- [⏸ 진행 중 인계 — $_topic](handoff-active.md) — \`/handoff\` 로 재개. 다음: $_next" "$_eol"
+      if [ -f "$_idx" ]; then grep -U -v '^- \[.*](handoff-active\.md)' "$_idx" || true; fi
+    } > "$_idx.tmp" && mv "$_idx.tmp" "$_idx"
+    if grep -q '^- \[.*](handoff-active\.md)' "$_idx" 2>/dev/null; then
+      echo "VERIFY_INDEX_PTR=ok"
+    else
+      echo "VERIFY_INDEX_PTR=FAIL — MEMORY.md 에 ](handoff-active.md) 포인터를 넣지 못했다"; fail=1
+    fi
+  else
+    echo "VERIFY_INDEX_PTR=skip — 위 FAIL 을 고칠 때까지 포인터를 넣지 않는다"
   fi
 
   [ "$fail" = "0" ] && echo "VERIFY_RESULT=pass" || echo "VERIFY_RESULT=fail"
@@ -301,4 +277,13 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   done || true
 else
   echo "BRANCH=(git 아님)"
+fi
+
+# 인계가 남아 있으면 본문을 함께 찍는다 — 재개 모드가 따로 Read 하지 않고 바로 소비·보고하게
+# (재개 첫 보고까지 도구 3회 → 2회). 저장 모드에서도 덮어쓸 인계가 무슨 주제인지 바로 보인다.
+if [ -f "$_ho" ]; then
+  echo "--- HANDOFF_CONTENT ($_ho) ---"
+  cat "$_ho"
+  echo
+  echo "--- END HANDOFF_CONTENT ---"
 fi
