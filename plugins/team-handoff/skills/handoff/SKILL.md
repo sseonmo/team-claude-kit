@@ -34,8 +34,12 @@ allowed-tools:
 
 ## 0. 상태 수집 (항상 먼저)
 
+`<BASE_DIR>` 자리에는 이 스킬을 불러온 메시지 첫 줄 `Base directory for this skill: …` 의 경로를
+그대로 넣는다(백슬래시 경로도 그대로 된다). 경로를 알면 캐시 전체를 `find` 로 훑지 않아도 된다.
+
 ```bash
-STATE=$(find "$HOME/.claude/plugins/cache" \
+STATE="<BASE_DIR>/scripts/state.sh"
+[ -f "$STATE" ] || STATE=$(find "$HOME/.claude/plugins/cache" \
   -path '*team-handoff/*/skills/handoff/scripts/state.sh' 2>/dev/null | sort -V | tail -1)
 [ -f "$STATE" ] || STATE="$HOME/.claude/skills/handoff/scripts/state.sh"
 if grep -qs 'HANDOFF_STATE=' "$STATE"; then bash "$STATE"; else echo "HANDOFF_STATE_NOT_FOUND"; fi
@@ -84,7 +88,7 @@ metadata:
 <왜 이 작업을 하는지 2~3줄>
 
 ## 다음 단계 (여기부터)
-1. <실행할 명령을 백틱으로 그대로. stash 에 작업이 있으면 복원 명령이 1번이다>
+1. <실행할 명령을 백틱으로 그대로. stash 에 작업이 있으면 복원 명령이 1번이다. 사용자에게 먼저 물어야 하면 "❓ <무엇>을 묻는다" 로 쓴다>
 2. …
 
 ## 🚨 하지 말 것
@@ -109,18 +113,15 @@ metadata:
 - 관련 메모리: [[…]]
 ```
 
-**`MEMORY.md` 최상단**에 포인터 한 줄(있으면 교체). 본문은 쓰지 않는다:
-
-```markdown
-- [⏸ 진행 중 인계 — <한 줄 주제>](handoff-active.md) — `/handoff` 로 재개. 다음: <첫 동작 요약>
-```
+`MEMORY.md` 의 포인터 줄은 **직접 쓰지 않는다** — 아래 `--verify` 가 `# ⏸ <주제>` 제목과
+"다음 단계 1" 첫 줄로 최상단에 넣는다(있으면 교체). `MEMORY.md` 를 읽거나 고칠 필요가 없다.
 
 쓰기 전에 확인한다:
 - API 키·비밀번호·토큰·개인정보가 없다 — 이 파일은 매 세션 읽힌다
 - 계획서·스펙·커밋 내용을 복사하지 않고 경로로만 참조했다
 - 지속 가치가 있는 교훈은 별도 메모리에 남겼다(새 파일보다 기존 파일 갱신 우선)
 
-**검증** — 0단계 블록의 `bash "$STATE"` 를 `bash "$STATE" --verify` 로 바꿔 실행한다(셸 변수는 호출 사이에 유지되지 않으니 세 줄 모두).
+**포인터 삽입 + 검증** — Write 직후 0단계 블록의 `bash "$STATE"` 를 `bash "$STATE" --verify` 로 바꿔 실행한다(셸 변수는 호출 사이에 유지되지 않으니 블록 전체).
 `VERIFY_RESULT=pass` 가 나오기 전에는 "저장했습니다"라고 말하지 마라. `fail` 이면 고치고 다시 실행한다.
 `VERIFY_FRESH=FAIL` 은 이번 쓰기가 실패하고 **이전 파일이 남았다**는 뜻이다 — 다시 쓰기 전에 쓰기 명령의 오류부터 확인한다.
 

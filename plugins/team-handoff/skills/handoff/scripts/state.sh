@@ -5,7 +5,7 @@
 #
 #   bash state.sh          # 상태 수집
 #   bash state.sh --paths  # 경로만(빠름)
-#   bash state.sh --verify # 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
+#   bash state.sh --verify # MEMORY.md 포인터를 넣고, 저장된 handoff-active.md 를 기계 검증(저장 직후 필수)
 #   bash state.sh --consume # 재개 직후 인계 파일 삭제 + MEMORY.md ⏸ 줄 제거
 #   bash state.sh --archive # 다른 작업의 미재개 인계를 handoff-archive-<시각>.md 로 옮김
 #
@@ -180,11 +180,35 @@ if [ "${1:-}" = "--verify" ]; then
     fail=1
   fi
 
-  # ① 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명)
-  if [ "$_ptr" = "yes" ]; then
+  # "다음 단계 1" 덩어리 — 포인터의 "다음:" 과 ③ 검사가 함께 쓴다.
+  #    1 항목은 여러 줄에 걸치므로 `1.` 부터 `2.` 직전까지를 한 덩어리로 본다.
+  step1="$(awk '/^## .*다음 단계/{f=1;next} f&&/^## /{exit} f' "$HO" \
+         | awk '/^[[:space:]]*1\./{g=1} g&&/^[[:space:]]*2\./{exit} g')"
+
+  # ① 인덱스 포인터 — 이게 없으면 새 세션은 인계를 발견하지 못한다(치명).
+  #    모델이 MEMORY.md 를 Read→Edit 하던 것을 여기서 한다(저장마다 1~2턴 절약).
+  #    주제는 `# ⏸ <주제>` 제목, 다음 동작은 "다음 단계 1" 첫 줄에서 뽑는다.
+  #    이전 포인터 줄은 지우고 최상단에 새로 넣는다. 방금 쓴 파일일 때만 넣는다 —
+  #    낡은 파일로 포인터를 만들면 끝난 작업이 다시 대기 상태가 된다.
+  #    MEMORY.md 는 CRLF 일 수 있어 grep -U 로 바이트 그대로 옮기고, 새 줄도 같은 줄끝으로 쓴다.
+  _idx="$MEM/MEMORY.md"
+  _topic="$(grep -m1 '^# ⏸' "$HO" | sed -e 's/^# ⏸[[:space:]]*//' -e 's/\r$//')"
+  _next="$(printf '%s\n' "$step1" | head -1 | sed -e 's/^[[:space:]]*1\.[[:space:]]*//' -e 's/\r$//')"
+  if [ "$fail" = "0" ] && [ -n "$_topic" ]; then
+    _eol=''
+    [ -f "$_idx" ] && grep -q $'\r$' "$_idx" && _eol=$'\r'
+    {
+      printf '%s%s\n' "- [⏸ 진행 중 인계 — $_topic](handoff-active.md) — \`/handoff\` 로 재개. 다음: $_next" "$_eol"
+      if [ -f "$_idx" ]; then grep -U -v '^- \[.*](handoff-active\.md)' "$_idx" || true; fi
+    } > "$_idx.tmp" && mv "$_idx.tmp" "$_idx"
+  fi
+  if grep -q '^- \[.*](handoff-active\.md)' "$_idx" 2>/dev/null; then
     echo "VERIFY_INDEX_PTR=ok"
+  elif [ -z "$_topic" ]; then
+    echo "VERIFY_INDEX_PTR=FAIL — 인계 파일에 '# ⏸ <주제>' 제목 줄이 없어 포인터를 만들 수 없다"
+    fail=1
   else
-    echo "VERIFY_INDEX_PTR=FAIL — MEMORY.md 에 ](handoff-active.md) 포인터가 없다"
+    echo "VERIFY_INDEX_PTR=FAIL — MEMORY.md 에 ](handoff-active.md) 포인터를 넣지 못했다"
     fail=1
   fi
 
@@ -200,14 +224,15 @@ if [ "${1:-}" = "--verify" ]; then
     fail=1
   fi
 
-  # ③ "다음 단계 1" 이 실행 명령인가 — 다음 세션이 첫 명령을 바로 칠 수 있어야 한다.
-  #    1 항목은 여러 줄에 걸치므로 `1.` 부터 `2.` 직전까지를 한 덩어리로 본다.
-  step1="$(awk '/^## .*다음 단계/{f=1;next} f&&/^## /{exit} f' "$HO" \
-         | awk '/^[[:space:]]*1\./{g=1} g&&/^[[:space:]]*2\./{exit} g')"
-  if printf '%s' "$step1" | grep -q '`'; then
+  # ③ "다음 단계 1" 이 바로 실행할 수 있는 첫 동작인가 — 실행 명령(백틱) 또는 사용자에게 묻기.
+  #    재개 모드는 ❓ 결정 대기를 먼저 묻게 되어 있어, 첫 동작이 질문인 인계가 흔하다.
+  #    백틱만 인정했더니 정당한 질문 인계가 FAIL 나고, 모델이 형식용 명령을 끼워 넣고
+  #    재검증하느라 저장마다 20초 안팎을 더 썼다(실측: STEP1 FAIL 4건 모두 "묻는다" 인계).
+  #    (step1 은 ① 앞에서 뽑아 두었다.)
+  if printf '%s' "$step1" | grep -qE '`|❓|묻'; then
     echo "VERIFY_STEP1_CMD=ok"
   else
-    echo "VERIFY_STEP1_CMD=FAIL — '다음 단계 1' 에 실행 명령(백틱)이 없다"
+    echo "VERIFY_STEP1_CMD=FAIL — '다음 단계 1' 에 실행 명령(백틱)도, 사용자 질문(❓·묻는다)도 없다"
     fail=1
   fi
 
@@ -246,7 +271,10 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   echo "GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)"
   echo "HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null)"
   echo "HEAD_MSG=$(git log -1 --pretty=%s 2>/dev/null)"
-  echo "DIRTY_COUNT=$(git status --porcelain | wc -l | tr -d ' ')"
+  # git status 는 큰 저장소에서 1초 넘게 걸린다(Windows Git Bash 실측 1.2초). 아래 세 곳이
+  # 같은 결과를 쓰므로 한 번만 실행해 재사용한다. 빈 저장소면 grep -c 가 1 로 끝나므로 || true.
+  _st="$(git status --porcelain)"
+  echo "DIRTY_COUNT=$(printf '%s' "$_st" | grep -c . || true)"
   echo "STASH_COUNT=$(git stash list | wc -l | tr -d ' ')"
   # `git worktree list` 는 메인 체크아웃도 세므로 추가 워크트리가 없어도 1 이 나온다.
   # 숫자만 −1 하면, 그동안 오프셋을 손으로 보정해 온 모델이 이중 보정해 워크트리 1개를
@@ -256,19 +284,21 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   # 상태 코드를 그대로 남긴다. 화이트리스트로 거르면 삭제( D)·add 후 재수정(AM)·rename(R )이
   # 빠져 "미커밋 파일이 빠짐없이 적혔는가" 체크리스트가 조용히 통과한다.
   echo "--- MODIFIED (tracked) ---"
-  git status --porcelain | grep -v '^??' || true
+  printf '%s\n' "$_st" | grep -v -e '^??' -e '^$' || true
   # 미추적 항목이 디렉토리면 git 은 한 줄로 접어 보여준다(`?? .claude/worktrees/`).
   # 그 한 줄이 DIRTY_COUNT 에서도 1 로 세어지므로, 안에 몇 개가 들었는지 모르면 "미커밋 1개" 로
   # 요약돼 수백 개의 파일이 통째로 인계에서 사라진다. 그래서 **표시만** 덧붙인다 —
   # DIRTY_COUNT 는 git 의 셈 그대로 둔다(--verify 가 본문과 대조하는 값이라 정의가 흔들리면 안 된다).
   echo "--- UNTRACKED ---"
-  git status --porcelain | grep '^??' | sed 's/^...//' | while IFS= read -r p; do
+  # 미추적이 0개면 grep 이 1 로 끝나고, pipefail 때문에 그게 스크립트 종료 코드가 된다.
+  # 그러면 정상 수집인데도 도구 호출이 에러로 표시돼 모델이 원인을 찾느라 턴을 쓴다(실측 다수).
+  printf '%s\n' "$_st" | grep '^??' | sed 's/^...//' | while IFS= read -r p; do
     if [ -d "$p" ]; then
       echo "$p  ($(find "$p" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
     else
       echo "$p"
     fi
-  done
+  done || true
 else
   echo "BRANCH=(git 아님)"
 fi
