@@ -59,6 +59,11 @@ fi
 # 다른 프로젝트 디렉토리를 추정했으나 실사용 51회 모두 세션 앵커로 잡혀 한 번도 쓰이지 않았다(0.3.3 제거).
 # 계산값 디렉토리가 없으면 아래 CONFIRM_DIR=yes 로 사람에게 확인받는다.
 
+# --verify 는 아래 상태 줄을 찍지 않는다. 저장 직후라 포인터가 아직 없어 늘 HANDOFF_STATE=orphan 이
+# 찍히는데, 모델이 그 줄을 수집 결과로 읽고 orphan 처리(--consume)를 따르면 방금 쓴 인계가 지워진다.
+# --verify 의 결론은 VERIFY_* 줄로 충분하다. 출력은 --verify 블록 직전에 되돌린다.
+[ "${1:-}" = "--verify" ] && exec 3>&1 1>/dev/null
+
 echo "MEMORY_DIR=$MEM"
 echo "MEMORY_DIR_SOURCE=$MEM_SOURCE"
 echo "MEMORY_EXISTS=$([ -d "$MEM" ] && echo yes || echo no)"
@@ -123,6 +128,7 @@ fi
 # 실제로 지켜지지 않은 항목(특히 "다음 단계 1 = 실행 명령")이 반복 관측됐다.
 # 그래서 기계로 셀 수 있는 것만 여기서 센다. 판정은 pass/fail 로 명확히 낸다.
 if [ "${1:-}" = "--verify" ]; then
+  exec 1>&3 3>&-
   HO="$MEM/handoff-active.md"
   fail=0
   if [ ! -f "$HO" ]; then
@@ -173,10 +179,10 @@ if [ "${1:-}" = "--verify" ]; then
   #    백틱만 인정했더니 정당한 질문 인계가 FAIL 나고, 모델이 형식용 명령을 끼워 넣고
   #    재검증하느라 저장마다 20초 안팎을 더 썼다(실측: STEP1 FAIL 4건 모두 "묻는다" 인계).
   #    (step1 은 위에서 뽑아 두었다.)
-  if printf '%s' "$step1" | grep -qE '`|❓|묻'; then
+  if printf '%s' "$step1" | grep -qE '`|❓|묻|승인'; then
     echo "VERIFY_STEP1_CMD=ok"
   else
-    echo "VERIFY_STEP1_CMD=FAIL — '다음 단계 1' 에 실행 명령(백틱)도, 사용자 질문(❓·묻는다)도 없다"
+    echo "VERIFY_STEP1_CMD=FAIL — '다음 단계 1' 에 실행 명령(백틱)도, 사용자 질문(❓·묻는다)·승인 요청도 없다"
     fail=1
   fi
 
@@ -217,6 +223,10 @@ if [ "${1:-}" = "--verify" ]; then
   _idx="$MEM/MEMORY.md"
   if [ "$fail" = "0" ]; then
     _next="$(printf '%s\n' "$step1" | head -1 | sed -e 's/^[[:space:]]*1\.[[:space:]]*//' -e 's/\r$//')"
+    # 1단계 첫 줄을 그대로 넣으면 길이 제한이 없다 — 실측 479자 줄이 MEMORY.md 에 실려 대기 중인
+    # 세션마다 컨텍스트를 먹었다. 스킬에 "짧게 쓰라"고 적는 대신 여기서 자른다(자기보고는 지켜지지 않는다).
+    # ${v:0:n} 은 UTF-8 로케일에서 글자 단위다. C 로케일이면 바이트 단위라 한글 중간이 잘릴 수 있다.
+    [ "${#_next}" -gt 80 ] && _next="${_next:0:80}…"
     _eol=''
     [ -f "$_idx" ] && grep -U -q $'\r$' "$_idx" && _eol=$'\r'
     {
